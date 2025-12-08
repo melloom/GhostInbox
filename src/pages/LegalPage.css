@@ -1,0 +1,118 @@
+.legal-page {
+  min-height: 100vh;
+  background: var(--bg-primary);
+  padding: 40px 24px;
+  color: var(--text-primary);
+}
+
+.legal-container {
+  max-width: 900px;
+  margin: 0 auto;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 48px;
+  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+}
+
+.back-link {
+  display: inline-block;
+  color: var(--accent);
+  text-decoration: none;
+  margin-bottom: 24px;
+  font-size: 0.9rem;
+  transition: all 0.2s ease;
+}
+
+.back-link:hover {
+  color: var(--text-primary);
+  transform: translateX(-4px);
+}
+
+.legal-container h1 {
+  font-size: clamp(2rem, 4vw, 2.5rem);
+  font-weight: 700;
+  margin-bottom: 8px;
+  color: var(--text-primary);
+  background: linear-gradient(135deg, var(--accent) 0%, #ec4899 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+.last-updated {
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  margin-bottom: 40px;
+  padding-bottom: 24px;
+  border-bottom: 1px solid var(--border);
+}
+
+.legal-container section {
+  margin-bottom: 40px;
+}
+
+.legal-container section h2 {
+  font-size: 1.5rem;
+  font-weight: 600;
+  margin-bottom: 16px;
+  color: var(--text-primary);
+  padding-top: 8px;
+}
+
+.legal-container section h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  margin-top: 24px;
+  margin-bottom: 12px;
+  color: var(--text-primary);
+}
+
+.legal-container section p {
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin-bottom: 16px;
+  font-size: 1rem;
+}
+
+.legal-container section ul,
+.legal-container section ol {
+  color: var(--text-secondary);
+  line-height: 1.8;
+  margin-bottom: 16px;
+  padding-left: 24px;
+}
+
+.legal-container section li {
+  margin-bottom: 8px;
+}
+
+.legal-container section strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Responsive Design */
+@media (max-width: 768px) {
+  .legal-page {
+    padding: 24px 16px;
+  }
+
+  .legal-container {
+    padding: 32px 24px;
+    border-radius: 12px;
+  }
+
+  .legal-container h1 {
+    font-size: 1.75rem;
+  }
+
+  .legal-container section h2 {
+    font-size: 1.25rem;
+  }
+
+  .legal-container section h3 {
+    font-size: 1rem;
+  }
+}
+
