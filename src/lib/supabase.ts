@@ -45,6 +45,8 @@ export interface VentMessage {
   created_at: string
   is_read: boolean
   is_flagged: boolean
+  is_starred?: boolean
+  is_archived?: boolean
 }
 
 export interface VentSummary {
@@ -86,5 +88,67 @@ export interface PollWithOptions extends Poll {
   options: PollOption[]
   vote_counts?: { [optionId: string]: number }
   total_votes?: number
+}
+
+export interface MessageTag {
+  id: string
+  message_id: string
+  tag_name: string
+  created_at: string
+}
+
+export interface MessageNote {
+  id: string
+  message_id: string
+  owner_id: string
+  note_text: string
+  created_at: string
+  updated_at: string
+}
+
+export interface MessageResponse {
+  id: string
+  message_id: string
+  owner_id: string
+  response_text: string
+  is_sent: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ResponseTemplate {
+  id: string
+  owner_id: string
+  template_name: string
+  template_text: string
+  category: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MessageFolder {
+  id: string
+  owner_id: string
+  folder_name: string
+  color: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface MessageFolderAssignment {
+  id: string
+  message_id: string
+  folder_id: string
+  created_at: string
+}
+
+export interface PollTemplate {
+  id: string
+  owner_id: string
+  template_name: string
+  question: string
+  options: string[]
+  created_at: string
+  updated_at: string
 }
 

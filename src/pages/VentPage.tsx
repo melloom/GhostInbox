@@ -29,7 +29,7 @@ export default function VentPage() {
   const [submitting, setSubmitting] = useState(false)
   const [status, setStatus] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [activePoll, setActivePoll] = useState<PollWithOptions | null>(null)
+  const [activePolls, setActivePolls] = useState<PollWithOptions[]>([])
   const [votedPollId, setVotedPollId] = useState<string | null>(null)
   const [voting, setVoting] = useState(false)
 
@@ -65,47 +65,51 @@ export default function VentPage() {
           profiles: profileData ? { handle: profileData.handle } : null,
         } as VentLinkWithProfile)
 
-        // Fetch active poll for this vent link
-        const { data: pollData, error: pollError } = await supabase
+        // Fetch active polls for this vent link (support multiple active polls)
+        const { data: pollsData, error: pollsError } = await supabase
           .from('polls')
           .select('*')
           .eq('vent_link_id', ventLinkData.id)
           .eq('is_active', true)
           .order('created_at', { ascending: false })
-          .limit(1)
-          .single()
 
-        if (!pollError && pollData) {
-          // Fetch poll options
-          const { data: optionsData } = await supabase
-            .from('poll_options')
-            .select('*')
-            .eq('poll_id', pollData.id)
-            .order('display_order', { ascending: true })
+        if (!pollsError && pollsData && pollsData.length > 0) {
+          // Fetch options and votes for all polls
+          const pollsWithData = await Promise.all(
+            pollsData.map(async (poll) => {
+              const { data: optionsData } = await supabase
+                .from('poll_options')
+                .select('*')
+                .eq('poll_id', poll.id)
+                .order('display_order', { ascending: true })
 
-          // Fetch vote counts
-          const { data: votesData } = await supabase
-            .from('poll_votes')
-            .select('option_id')
-            .eq('poll_id', pollData.id)
+              const { data: votesData } = await supabase
+                .from('poll_votes')
+                .select('option_id')
+                .eq('poll_id', poll.id)
 
-          const voteCounts: { [key: string]: number } = {}
-          votesData?.forEach((vote) => {
-            voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
-          })
+              const voteCounts: { [key: string]: number } = {}
+              votesData?.forEach((vote) => {
+                voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
+              })
 
-          // Check if user has already voted
+              return {
+                ...poll,
+                options: optionsData || [],
+                vote_counts: voteCounts,
+                total_votes: votesData?.length || 0,
+              } as PollWithOptions
+            })
+          )
+
+          // Check voted polls
           const votedPolls = JSON.parse(localStorage.getItem('ghostinbox_voted_polls') || '[]')
-          if (votedPolls.includes(pollData.id)) {
-            setVotedPollId(pollData.id)
+          if (votedPolls.length > 0) {
+            const votedId = pollsWithData.find(p => votedPolls.includes(p.id))?.id
+            if (votedId) setVotedPollId(votedId)
           }
 
-          setActivePoll({
-            ...pollData,
-            options: optionsData || [],
-            vote_counts: voteCounts,
-            total_votes: votesData?.length || 0,
-          } as PollWithOptions)
+          setActivePolls(pollsWithData)
         }
       } catch (err: any) {
         setVentLink(null)
@@ -185,14 +189,14 @@ export default function VentPage() {
     }
   }
 
-  async function handleVote(optionId: string) {
-    if (!activePoll || voting || votedPollId === activePoll.id) return
+  async function handleVote(pollId: string, optionId: string) {
+    const poll = activePolls.find(p => p.id === pollId)
+    if (!poll || voting || votedPollId === pollId) return
 
-    // Check localStorage to prevent duplicate votes
     const votedPolls = JSON.parse(localStorage.getItem('ghostinbox_voted_polls') || '[]')
-    if (votedPolls.includes(activePoll.id)) {
+    if (votedPolls.includes(pollId)) {
       setStatus('You have already voted on this poll.')
-      setVotedPollId(activePoll.id)
+      setVotedPollId(pollId)
       return
     }
 
@@ -201,33 +205,29 @@ export default function VentPage() {
       const { error } = await supabase
         .from('poll_votes')
         .insert({
-          poll_id: activePoll.id,
+          poll_id: pollId,
           option_id: optionId,
-          ip_hash: null, // Anonymous voting
+          ip_hash: null,
         })
 
       if (error) {
-        // Check for duplicate vote (safe to show)
         if (error.message.includes('duplicate') || error.message.includes('unique')) {
           setStatus('You have already voted on this poll.')
-          setVotedPollId(activePoll.id)
-          // Store in localStorage
-          votedPolls.push(activePoll.id)
+          setVotedPollId(pollId)
+          votedPolls.push(pollId)
           localStorage.setItem('ghostinbox_voted_polls', JSON.stringify(votedPolls))
         } else {
-          // Sanitize other errors
           const sanitizedError = sanitizeErrorMessage(error)
           setStatus(sanitizedError)
         }
         return
       }
 
-      // Store vote in localStorage
-      votedPolls.push(activePoll.id)
+      votedPolls.push(pollId)
       localStorage.setItem('ghostinbox_voted_polls', JSON.stringify(votedPolls))
-      setVotedPollId(activePoll.id)
+      setVotedPollId(pollId)
       
-      // Refresh poll data to show updated results
+      // Refresh poll data
       const { data: votesData } = await supabase
         .from('poll_votes')
         .select('option_id')
@@ -238,11 +238,11 @@ export default function VentPage() {
         voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
       })
 
-      setActivePoll({
-        ...activePoll,
-        vote_counts: voteCounts,
-        total_votes: votesData?.length || 0,
-      })
+      setActivePolls(activePolls.map(p => 
+        p.id === pollId 
+          ? { ...p, vote_counts: voteCounts, total_votes: votesData?.length || 0 }
+          : p
+      ))
     } catch (err: any) {
       // Sanitize error message before showing to user
       const sanitizedError = sanitizeErrorMessage(err)
@@ -285,15 +285,15 @@ export default function VentPage() {
         </p>
 
         {/* Active Poll Section */}
-        {activePoll && (
-          <div className="poll-section">
-            <h3 className="poll-question">{activePoll.question}</h3>
-            {votedPollId === activePoll.id || activePoll.total_votes ? (
+        {activePolls.map((poll) => (
+          <div key={poll.id} className="poll-section">
+            <h3 className="poll-question">{poll.question}</h3>
+            {votedPollId === poll.id || poll.total_votes ? (
               <div className="poll-results">
-                {activePoll.options.map((option) => {
-                  const voteCount = activePoll.vote_counts?.[option.id] || 0
-                  const percentage = activePoll.total_votes && activePoll.total_votes > 0
-                    ? Math.round((voteCount / activePoll.total_votes) * 100)
+                {poll.options.map((option) => {
+                  const voteCount = poll.vote_counts?.[option.id] || 0
+                  const percentage = poll.total_votes && poll.total_votes > 0
+                    ? Math.round((voteCount / poll.total_votes) * 100)
                     : 0
                   return (
                     <div key={option.id} className="poll-result-item">
@@ -311,15 +311,15 @@ export default function VentPage() {
                     </div>
                   )
                 })}
-                <div className="poll-total-votes">Total: {activePoll.total_votes || 0} votes</div>
+                <div className="poll-total-votes">Total: {poll.total_votes || 0} votes</div>
               </div>
             ) : (
               <div className="poll-options">
-                {activePoll.options.map((option) => (
+                {poll.options.map((option) => (
                   <button
                     key={option.id}
                     type="button"
-                    onClick={() => handleVote(option.id)}
+                    onClick={() => handleVote(poll.id, option.id)}
                     className="poll-option-btn"
                     disabled={voting}
                   >
@@ -329,7 +329,7 @@ export default function VentPage() {
               </div>
             )}
           </div>
-        )}
+        ))}
 
         <form onSubmit={handleSubmit} className="vent-form">
           <textarea

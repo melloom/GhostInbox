@@ -17,6 +17,10 @@ function App() {
   const [loading, setLoading] = useState(true)
 
   useEffect(() => {
+    // Check if we're on reset-password route with recovery token
+    const hashParams = new URLSearchParams(window.location.hash.substring(1))
+    const isRecovery = hashParams.get('type') === 'recovery' && window.location.pathname === '/reset-password'
+
     // Check active session
     supabase.auth.getSession().then(({ data: { session }, error }) => {
       if (error) {
@@ -26,7 +30,12 @@ function App() {
         }
         setUser(null)
       } else {
-        setUser(session?.user ?? null)
+        // If we're on reset-password with recovery token, don't set user (let ResetPassword handle it)
+        if (isRecovery) {
+          setUser(null)
+        } else {
+          setUser(session?.user ?? null)
+        }
       }
       setLoading(false)
     }).catch((error) => {
@@ -41,8 +50,17 @@ function App() {
     // Listen for auth changes
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
-      setUser(session?.user ?? null)
+    } = supabase.auth.onAuthStateChange((event, session) => {
+      // Don't set user if it's a password recovery event and we're on reset-password route
+      const currentHashParams = new URLSearchParams(window.location.hash.substring(1))
+      const isCurrentRecovery = currentHashParams.get('type') === 'recovery' && window.location.pathname === '/reset-password'
+      
+      if (event === 'PASSWORD_RECOVERY' || (isCurrentRecovery && event === 'SIGNED_IN')) {
+        // Let ResetPassword component handle this
+        setUser(null)
+      } else {
+        setUser(session?.user ?? null)
+      }
     })
 
     return () => subscription.unsubscribe()
