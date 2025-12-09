@@ -173,6 +173,21 @@ export default function Dashboard() {
   const [updatingGoal, setUpdatingGoal] = useState(false)
   const [deletingGoal, setDeletingGoal] = useState<string | null>(null)
   const [communityEvents, setCommunityEvents] = useState<CommunityEvent[]>([])
+  const [showCreateEvent, setShowCreateEvent] = useState(false)
+  const [newEventTitle, setNewEventTitle] = useState('')
+  const [newEventDescription, setNewEventDescription] = useState('')
+  const [newEventType, setNewEventType] = useState<'event' | 'announcement' | 'update'>('event')
+  const [newEventDate, setNewEventDate] = useState('')
+  const [newEventPinned, setNewEventPinned] = useState(false)
+  const [creatingEvent, setCreatingEvent] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<string | null>(null)
+  const [editEventTitle, setEditEventTitle] = useState('')
+  const [editEventDescription, setEditEventDescription] = useState('')
+  const [editEventType, setEditEventType] = useState<'event' | 'announcement' | 'update'>('event')
+  const [editEventDate, setEditEventDate] = useState('')
+  const [editEventPinned, setEditEventPinned] = useState(false)
+  const [updatingEvent, setUpdatingEvent] = useState(false)
+  const [deletingEvent, setDeletingEvent] = useState<string | null>(null)
   const [collaborativeProjects, setCollaborativeProjects] = useState<CollaborativeProject[]>([])
   const [messageReactions, setMessageReactions] = useState<{ [messageId: string]: MessageReaction[] }>({})
   const [reactionStats, setReactionStats] = useState<{ [messageId: string]: { [reactionType: string]: number } }>({})
@@ -545,6 +560,49 @@ export default function Dashboard() {
       voteResponsesChannel.unsubscribe()
       reactionsChannel.unsubscribe()
       goalsChannel.unsubscribe()
+    }
+
+    // Subscribe to community events for real-time updates
+    const eventsChannel = supabase
+      .channel('community_events_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'community_events'
+        },
+        async () => {
+          try {
+            if (ventLinks.length > 0) {
+              await fetchEvents(ventLinks.map(l => l.id))
+            }
+          } catch (err: any) {
+            if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+              if (import.meta.env.DEV) {
+                console.error('Error in events subscription callback:', err)
+              }
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      messageChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      pollChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      votesChannel.unsubscribe()
+      voteChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      voteResponsesChannel.unsubscribe()
+      reactionsChannel.unsubscribe()
+      goalsChannel.unsubscribe()
+      eventsChannel.unsubscribe()
     }
 
     // Subscribe to feedback forms for each vent link
@@ -1272,6 +1330,9 @@ export default function Dashboard() {
 
         // Fetch Community Goals
         await fetchGoals(linkIds)
+
+        // Fetch Community Events
+        await fetchEvents(linkIds)
 
         // Fetch Feedback Forms
         try {
@@ -2983,6 +3044,189 @@ export default function Dashboard() {
     if (goal.current_value >= goal.target_value) return 'completed'
     if (goal.deadline && new Date(goal.deadline) < new Date()) return 'expired'
     return 'active'
+  }
+
+  async function fetchEvents(linkIds: string[]) {
+    try {
+      const { data, error } = await supabase
+        .from('community_events')
+        .select('*')
+        .in('vent_link_id', linkIds)
+        .order('is_pinned', { ascending: false })
+        .order('event_date', { ascending: true, nullsFirst: false })
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        if (error.code !== 'PGRST116' && error.code !== '42501') {
+          if (import.meta.env.DEV) {
+            console.error('Error fetching events:', error)
+          }
+        }
+        return
+      }
+
+      setCommunityEvents(data || [])
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Error fetching events:', err)
+      }
+    }
+  }
+
+  async function createEvent() {
+    const primary = primaryVentLink
+    if (!primary) return
+    if (!newEventTitle.trim()) {
+      alert('Please enter an event title')
+      return
+    }
+
+    setCreatingEvent(true)
+    try {
+      const { error } = await supabase.from('community_events').insert({
+        vent_link_id: primary.id,
+        title: newEventTitle.trim(),
+        description: newEventDescription.trim() || null,
+        event_type: newEventType,
+        event_date: newEventDate ? new Date(newEventDate).toISOString() : null,
+        is_pinned: newEventPinned,
+        is_active: true,
+      })
+
+      if (error) {
+        console.error('Error creating event:', error)
+        alert(error.message || 'Failed to create event')
+      } else {
+        await fetchEvents([primary.id])
+        setShowCreateEvent(false)
+        setNewEventTitle('')
+        setNewEventDescription('')
+        setNewEventType('event')
+        setNewEventDate('')
+        setNewEventPinned(false)
+      }
+    } catch (err: any) {
+      console.error('Error creating event:', err)
+      alert(err.message || 'Failed to create event')
+    } finally {
+      setCreatingEvent(false)
+    }
+  }
+
+  async function toggleEventActive(eventId: string, isActive: boolean) {
+    try {
+      const { error } = await supabase
+        .from('community_events')
+        .update({ is_active: !isActive })
+        .eq('id', eventId)
+
+      if (error) {
+        console.error('Error updating event:', error)
+      } else {
+        await fetchEvents(ventLinks.map(l => l.id))
+      }
+    } catch (err) {
+      console.error('Error updating event:', err)
+    }
+  }
+
+  async function toggleEventPinned(eventId: string, isPinned: boolean) {
+    try {
+      const { error } = await supabase
+        .from('community_events')
+        .update({ is_pinned: !isPinned })
+        .eq('id', eventId)
+
+      if (error) {
+        console.error('Error updating event:', error)
+      } else {
+        await fetchEvents(ventLinks.map(l => l.id))
+      }
+    } catch (err) {
+      console.error('Error updating event:', err)
+    }
+  }
+
+  async function startEditEvent(event: CommunityEvent) {
+    setEditingEvent(event.id)
+    setEditEventTitle(event.title)
+    setEditEventDescription(event.description || '')
+    setEditEventType(event.event_type)
+    setEditEventDate(event.event_date ? new Date(event.event_date).toISOString().slice(0, 16) : '')
+    setEditEventPinned(event.is_pinned)
+  }
+
+  async function cancelEditEvent() {
+    setEditingEvent(null)
+    setEditEventTitle('')
+    setEditEventDescription('')
+    setEditEventType('event')
+    setEditEventDate('')
+    setEditEventPinned(false)
+  }
+
+  async function saveEventEdit() {
+    if (!editingEvent) return
+
+    setUpdatingEvent(true)
+    try {
+      const { error } = await supabase
+        .from('community_events')
+        .update({
+          title: editEventTitle.trim(),
+          description: editEventDescription.trim() || null,
+          event_type: editEventType,
+          event_date: editEventDate ? new Date(editEventDate).toISOString() : null,
+          is_pinned: editEventPinned,
+        })
+        .eq('id', editingEvent)
+
+      if (error) {
+        console.error('Error updating event:', error)
+        alert(error.message || 'Failed to update event')
+      } else {
+        await fetchEvents(ventLinks.map(l => l.id))
+        cancelEditEvent()
+      }
+    } catch (err: any) {
+      console.error('Error updating event:', err)
+      alert(err.message || 'Failed to update event')
+    } finally {
+      setUpdatingEvent(false)
+    }
+  }
+
+  async function deleteEvent(eventId: string) {
+    if (!confirm('Are you sure you want to delete this event?')) return
+
+    setDeletingEvent(eventId)
+    try {
+      const { error } = await supabase
+        .from('community_events')
+        .delete()
+        .eq('id', eventId)
+
+      if (error) {
+        console.error('Error deleting event:', error)
+        alert(error.message || 'Failed to delete event')
+      } else {
+        await fetchEvents(ventLinks.map(l => l.id))
+      }
+    } catch (err: any) {
+      console.error('Error deleting event:', err)
+      alert(err.message || 'Failed to delete event')
+    } finally {
+      setDeletingEvent(null)
+    }
+  }
+
+  function getEventStatus(event: CommunityEvent): 'upcoming' | 'past' | 'no-date' | 'inactive' {
+    if (!event.is_active) return 'inactive'
+    if (!event.event_date) return 'no-date'
+    const now = new Date()
+    const eventDate = new Date(event.event_date)
+    if (eventDate < now) return 'past'
+    return 'upcoming'
   }
 
   async function fetchReactionsForMessage(messageId: string) {
@@ -7267,24 +7511,345 @@ export default function Dashboard() {
                 {hubView === 'events' && (
                   <div className="hub-events-view">
                     <div className="hub-section-header">
-                      <h3>Events & Announcements</h3>
-                      {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Event</button>
+                      <div className="hub-section-title">
+                        <h3>Events & Announcements</h3>
+                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Schedule community events and announcements
+                        </p>
+                      </div>
+                      {primaryVentLink ? (
+                        <button
+                          onClick={() => {
+                            if (editingEvent) cancelEditEvent()
+                            setShowCreateEvent(!showCreateEvent)
+                          }}
+                          className="btn btn-secondary"
+                        >
+                          {showCreateEvent ? 'Cancel' : '+ New Event'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn btn-secondary"
+                        >
+                          Create Link First
+                        </button>
                       )}
-          </div>
+                    </div>
+
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">📅</div>
-                        <p>Create a vent link first</p>
-                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                        <p>Create a vent link first to create events</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Vent Link</button>
                       </div>
-                    ) : (
+                    ) : showCreateEvent && !editingEvent && (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label htmlFor="event-title">Event/Announcement Title *</label>
+                          <input
+                            id="event-title"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Community Meetup or Important Update"
+                            value={newEventTitle}
+                            onChange={(e) => setNewEventTitle(e.target.value)}
+                            disabled={creatingEvent}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="event-description">Description (optional)</label>
+                          <textarea
+                            id="event-description"
+                            className="input"
+                            placeholder="Add details about the event or announcement..."
+                            value={newEventDescription}
+                            onChange={(e) => setNewEventDescription(e.target.value)}
+                            disabled={creatingEvent}
+                            rows={4}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="event-type">Type *</label>
+                          <select
+                            id="event-type"
+                            className="input"
+                            value={newEventType}
+                            onChange={(e) => setNewEventType(e.target.value as 'event' | 'announcement' | 'update')}
+                            disabled={creatingEvent}
+                          >
+                            <option value="event">📅 Event</option>
+                            <option value="announcement">📢 Announcement</option>
+                            <option value="update">🔄 Update</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="event-date">Date & Time (optional)</label>
+                          <input
+                            id="event-date"
+                            type="datetime-local"
+                            className="input"
+                            value={newEventDate}
+                            onChange={(e) => setNewEventDate(e.target.value)}
+                            disabled={creatingEvent}
+                          />
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            Leave empty for announcements without a specific date
+                          </p>
+                        </div>
+                        <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="checkbox"
+                            id="event-pinned"
+                            checked={newEventPinned}
+                            onChange={(e) => setNewEventPinned(e.target.checked)}
+                            disabled={creatingEvent}
+                          />
+                          <label htmlFor="event-pinned" style={{ margin: 0, cursor: 'pointer' }}>
+                            Pin to top
+                          </label>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={createEvent}
+                            className="btn"
+                            disabled={creatingEvent || !newEventTitle.trim()}
+                          >
+                            {creatingEvent ? 'Creating...' : 'Create Event'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Edit Event Form */}
+                    {editingEvent && (
+                      <div className="create-poll-form" style={{ marginBottom: '24px', border: '2px solid var(--accent)' }}>
+                        <h3 style={{ marginBottom: '16px' }}>Edit Event</h3>
+                        <div className="form-group">
+                          <label htmlFor="edit-event-title">Event/Announcement Title *</label>
+                          <input
+                            id="edit-event-title"
+                            type="text"
+                            className="input"
+                            value={editEventTitle}
+                            onChange={(e) => setEditEventTitle(e.target.value)}
+                            disabled={updatingEvent}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-event-description">Description (optional)</label>
+                          <textarea
+                            id="edit-event-description"
+                            className="input"
+                            value={editEventDescription}
+                            onChange={(e) => setEditEventDescription(e.target.value)}
+                            disabled={updatingEvent}
+                            rows={4}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-event-type">Type *</label>
+                          <select
+                            id="edit-event-type"
+                            className="input"
+                            value={editEventType}
+                            onChange={(e) => setEditEventType(e.target.value as 'event' | 'announcement' | 'update')}
+                            disabled={updatingEvent}
+                          >
+                            <option value="event">📅 Event</option>
+                            <option value="announcement">📢 Announcement</option>
+                            <option value="update">🔄 Update</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-event-date">Date & Time (optional)</label>
+                          <input
+                            id="edit-event-date"
+                            type="datetime-local"
+                            className="input"
+                            value={editEventDate}
+                            onChange={(e) => setEditEventDate(e.target.value)}
+                            disabled={updatingEvent}
+                          />
+                        </div>
+                        <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                          <input
+                            type="checkbox"
+                            id="edit-event-pinned"
+                            checked={editEventPinned}
+                            onChange={(e) => setEditEventPinned(e.target.checked)}
+                            disabled={updatingEvent}
+                          />
+                          <label htmlFor="edit-event-pinned" style={{ margin: 0, cursor: 'pointer' }}>
+                            Pin to top
+                          </label>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={saveEventEdit}
+                            className="btn"
+                            disabled={updatingEvent || !editEventTitle.trim()}
+                          >
+                            {updatingEvent ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button
+                            onClick={cancelEditEvent}
+                            className="btn btn-secondary"
+                            disabled={updatingEvent}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryVentLink && communityEvents.length > 0 ? (
+                      <div className="polls-list">
+                        {communityEvents.map((event) => {
+                          const status = getEventStatus(event)
+                          const isPast = status === 'past'
+                          const isUpcoming = status === 'upcoming'
+
+                          return (
+                            <div
+                              key={event.id}
+                              className={`poll-card ${!event.is_active ? 'inactive' : ''}`}
+                              style={{
+                                borderLeft: event.is_pinned
+                                  ? '4px solid var(--accent)'
+                                  : isPast
+                                  ? '4px solid var(--text-secondary)'
+                                  : isUpcoming
+                                  ? '4px solid var(--success)'
+                                  : '4px solid var(--border)'
+                              }}
+                            >
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                    <h3>
+                                      {event.event_type === 'event' ? '📅' :
+                                       event.event_type === 'announcement' ? '📢' :
+                                       '🔄'} {event.title}
+                                    </h3>
+                                    {event.is_pinned && (
+                                      <span
+                                        style={{
+                                          padding: '4px 8px',
+                                          borderRadius: '4px',
+                                          fontSize: '11px',
+                                          fontWeight: 600,
+                                          background: 'rgba(236, 72, 153, 0.12)',
+                                          color: 'var(--accent)'
+                                        }}
+                                      >
+                                        📌 Pinned
+                                      </span>
+                                    )}
+                                    <span
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: status === 'past'
+                                          ? 'rgba(107, 114, 128, 0.1)'
+                                          : status === 'upcoming'
+                                          ? 'rgba(16, 185, 129, 0.12)'
+                                          : event.is_active
+                                          ? 'rgba(59, 130, 246, 0.12)'
+                                          : 'rgba(107, 114, 128, 0.1)',
+                                        color: status === 'past'
+                                          ? 'var(--text-secondary)'
+                                          : status === 'upcoming'
+                                          ? 'var(--success)'
+                                          : event.is_active
+                                          ? 'var(--accent)'
+                                          : 'var(--text-secondary)'
+                                      }}
+                                    >
+                                      {status === 'past' ? '⏰ Past' :
+                                       status === 'upcoming' ? '🟢 Upcoming' :
+                                       status === 'no-date' ? '📅 No Date' :
+                                       '⚪ Inactive'}
+                                    </span>
+                                    <span
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: 'rgba(59,130,246,0.12)',
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    >
+                                      {event.event_type === 'event' ? '📅 Event' :
+                                       event.event_type === 'announcement' ? '📢 Announcement' :
+                                       '🔄 Update'}
+                                    </span>
+                                  </div>
+                                  {event.description && (
+                                    <p style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '14px', whiteSpace: 'pre-wrap' }}>
+                                      {event.description}
+                                    </p>
+                                  )}
+                                  {event.event_date && (
+                                    <p style={{ marginTop: '12px', fontSize: '13px', color: isPast ? 'var(--text-secondary)' : 'var(--text-primary)', fontWeight: 500 }}>
+                                      {isPast ? '⏰ ' : '📅 '}
+                                      {new Date(event.event_date).toLocaleString()}
+                                    </p>
+                                  )}
+                                  <p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Created: {new Date(event.created_at).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    className="btn btn-small btn-secondary"
+                                    onClick={() => startEditEvent(event)}
+                                    disabled={editingEvent !== null || deletingEvent !== null}
+                                    title="Edit Event"
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    className={`btn btn-small ${event.is_pinned ? '' : 'btn-secondary'}`}
+                                    onClick={() => toggleEventPinned(event.id, event.is_pinned)}
+                                    disabled={editingEvent !== null || deletingEvent !== null}
+                                    title={event.is_pinned ? 'Unpin' : 'Pin'}
+                                  >
+                                    {event.is_pinned ? '📌' : '📌'}
+                                  </button>
+                                  <button
+                                    className={`btn btn-small ${event.is_active ? 'btn-secondary' : ''}`}
+                                    onClick={() => toggleEventActive(event.id, event.is_active)}
+                                    disabled={editingEvent !== null || deletingEvent !== null}
+                                    title={event.is_active ? 'Deactivate' : 'Activate'}
+                                  >
+                                    {event.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  <button
+                                    className="btn btn-small btn-danger"
+                                    onClick={() => deleteEvent(event.id)}
+                                    disabled={deletingEvent === event.id || editingEvent !== null}
+                                    title="Delete Event"
+                                  >
+                                    {deletingEvent === event.id ? '...' : '🗑️'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">📅</div>
                         <p>No events yet</p>
                         <p className="empty-hint">Schedule community events and announcements</p>
+                        <button className="btn" onClick={() => setShowCreateEvent(true)}>Create Event</button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
 
