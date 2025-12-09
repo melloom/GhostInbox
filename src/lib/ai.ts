@@ -12,6 +12,11 @@ export async function generateReplyTemplates(messageBody: string): Promise<strin
       throw new Error('You must be logged in to use AI features')
     }
 
+    // Validate message body
+    if (!messageBody || messageBody.trim().length === 0) {
+      throw new Error('Message body is required')
+    }
+
     // Call Supabase Edge Function
     const { data, error } = await supabase.functions.invoke('openai-ai', {
       body: {
@@ -21,15 +26,38 @@ export async function generateReplyTemplates(messageBody: string): Promise<strin
     })
 
     if (error) {
-      // Log error securely (only in development)
+      // Log detailed error in development
       if (import.meta.env.DEV) {
-        console.error('Error calling OpenAI function:', error)
+        console.error('Error calling OpenAI function:', {
+          error,
+          message: error.message,
+          context: error.context,
+          status: error.status,
+        })
       }
+
+      // Provide more specific error messages
+      if (error.message?.includes('Function not found') || error.message?.includes('404')) {
+        throw new Error('AI service is not available. Please ensure the Edge Function is deployed.')
+      }
+      
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
+        throw new Error('Network error. Please check your connection and try again.')
+      }
+
+      if (error.message?.includes('Unauthorized') || error.message?.includes('401')) {
+        throw new Error('Authentication failed. Please log in again.')
+      }
+
       throw new Error(error.message || 'Failed to generate replies')
     }
 
-    if (!data || !data.result) {
-      throw new Error('No response from AI service')
+    if (!data) {
+      throw new Error('No response from AI service. The function may not be deployed or configured correctly.')
+    }
+
+    if (!data.result) {
+      throw new Error('AI service returned an empty response. Please try again.')
     }
 
     return data.result
@@ -38,6 +66,12 @@ export async function generateReplyTemplates(messageBody: string): Promise<strin
     if (import.meta.env.DEV) {
       console.error('Error generating reply templates:', error)
     }
+    
+    // Re-throw if it's already a formatted error
+    if (error?.message && (error.message.startsWith('AI service') || error.message.startsWith('Network') || error.message.startsWith('Authentication'))) {
+      throw error
+    }
+    
     const errorMessage = error?.message || 'Unknown error occurred'
     throw new Error(`Failed to generate replies: ${errorMessage}`)
   }
@@ -55,6 +89,11 @@ export async function summarizeThemes(messages: string[]): Promise<string> {
       throw new Error('You must be logged in to use AI features')
     }
 
+    // Validate messages array
+    if (!messages || messages.length === 0) {
+      throw new Error('No messages provided to summarize')
+    }
+
     // Call Supabase Edge Function
     const { data, error } = await supabase.functions.invoke('openai-ai', {
       body: {
@@ -64,15 +103,38 @@ export async function summarizeThemes(messages: string[]): Promise<string> {
     })
 
     if (error) {
-      // Log error securely (only in development)
+      // Log detailed error in development
       if (import.meta.env.DEV) {
-        console.error('Error calling OpenAI function:', error)
+        console.error('Error calling OpenAI function:', {
+          error,
+          message: error.message,
+          context: error.context,
+          status: error.status,
+        })
       }
+
+      // Provide more specific error messages
+      if (error.message?.includes('Function not found') || error.message?.includes('404')) {
+        throw new Error('AI service is not available. Please ensure the Edge Function is deployed.')
+      }
+      
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
+        throw new Error('Network error. Please check your connection and try again.')
+      }
+
+      if (error.message?.includes('Unauthorized') || error.message?.includes('401')) {
+        throw new Error('Authentication failed. Please log in again.')
+      }
+
       throw new Error(error.message || 'Failed to generate summary')
     }
 
-    if (!data || !data.result) {
-      throw new Error('No response from AI service')
+    if (!data) {
+      throw new Error('No response from AI service. The function may not be deployed or configured correctly.')
+    }
+
+    if (!data.result) {
+      throw new Error('AI service returned an empty response. Please try again.')
     }
 
     return data.result
@@ -81,6 +143,12 @@ export async function summarizeThemes(messages: string[]): Promise<string> {
     if (import.meta.env.DEV) {
       console.error('Error generating theme summary:', error)
     }
+    
+    // Re-throw if it's already a formatted error
+    if (error?.message && error.message.startsWith('AI service') || error.message.startsWith('Network') || error.message.startsWith('Authentication')) {
+      throw error
+    }
+    
     const errorMessage = error?.message || 'Unknown error occurred'
     throw new Error(`Failed to generate summary: ${errorMessage}`)
   }
