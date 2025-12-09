@@ -3153,3 +3153,56 @@
   }
 }
 
+/* Community Wall Styles */
+.wall-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 24px;
+  margin-top: 24px;
+}
+
+.wall-card {
+  background: var(--bg-primary);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  cursor: pointer;
+  position: relative;
+  overflow: hidden;
+}
+
+.wall-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  background: linear-gradient(90deg, var(--accent), rgba(236, 72, 153, 0.5));
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.wall-card:hover::before {
+  opacity: 1;
+}
+
+.wall-card:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  border-color: var(--accent);
+}
+
+@media (max-width: 768px) {
+  .wall-grid {
+    grid-template-columns: 1fr;
+    gap: 16px;
+  }
+  
+  .wall-card {
+    padding: 16px;
+  }
+}
+

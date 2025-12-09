@@ -7857,13 +7857,137 @@ export default function Dashboard() {
                 {hubView === 'wall' && (
                   <div className="hub-wall-view">
                     <div className="hub-section-header">
-                      <h3>Community Wall</h3>
+                      <div className="hub-section-title">
+                        <h3>Community Wall</h3>
+                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Showcase featured messages from your community
+                        </p>
+                      </div>
+                      {primaryVentLink && (
+                        <button
+                          onClick={() => setHubView('highlights')}
+                          className="btn btn-secondary"
+                        >
+                          Manage Highlights
+                        </button>
+                      )}
                     </div>
-                    <div className="empty-state-compact">
-                      <div className="empty-icon">🧱</div>
-                      <p>Community Wall</p>
-                      <p className="empty-hint">Showcase featured messages from your community</p>
-                    </div>
+
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🧱</div>
+                        <p>Create a vent link first to build your community wall</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Vent Link</button>
+                      </div>
+                    ) : highlights.filter(h => h.is_featured && primaryVentLink && h.vent_link_id === primaryVentLink.id).length === 0 ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🧱</div>
+                        <p>No featured messages yet</p>
+                        <p className="empty-hint">Feature messages in the Highlights section to display them on your Community Wall</p>
+                        <button className="btn" onClick={() => setHubView('highlights')}>Go to Highlights</button>
+                      </div>
+                    ) : (
+                      <div className="wall-grid">
+                        {highlights
+                          .filter(h => h.is_featured && primaryVentLink && h.vent_link_id === primaryVentLink.id)
+                          .sort((a, b) => (a.display_order || 0) - (b.display_order || 0))
+                          .map((highlight) => {
+                            const linkedMessage = highlight.message_id
+                              ? messages.find(m => m.id === highlight.message_id)
+                              : null
+
+                            return (
+                              <div
+                                key={highlight.id}
+                                className="wall-card"
+                                style={{
+                                  background: 'var(--bg-primary)',
+                                  border: '1px solid var(--border)',
+                                  borderRadius: '12px',
+                                  padding: '20px',
+                                  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.1)',
+                                  transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                                  cursor: 'pointer',
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.transform = 'translateY(-4px)'
+                                  e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)'
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.transform = 'translateY(0)'
+                                  e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)'
+                                }}
+                                onClick={() => {
+                                  if (linkedMessage) {
+                                    setActiveTab('messages')
+                                    setSelectedMessage(linkedMessage)
+                                  }
+                                }}
+                              >
+                                {highlight.title && (
+                                  <h4 style={{
+                                    marginBottom: '12px',
+                                    fontSize: '18px',
+                                    fontWeight: 600,
+                                    color: 'var(--text-primary)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '8px'
+                                  }}>
+                                    <span>⭐</span>
+                                    {highlight.title}
+                                  </h4>
+                                )}
+                                <div style={{
+                                  fontSize: '15px',
+                                  lineHeight: '1.6',
+                                  color: 'var(--text-secondary)',
+                                  whiteSpace: 'pre-wrap',
+                                  wordBreak: 'break-word'
+                                }}>
+                                  {highlight.highlight_text || (linkedMessage ? linkedMessage.body : '')}
+                                </div>
+                                {linkedMessage && (
+                                  <div style={{
+                                    marginTop: '16px',
+                                    paddingTop: '16px',
+                                    borderTop: '1px solid var(--border)',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justifyContent: 'space-between',
+                                    fontSize: '12px',
+                                    color: 'var(--text-secondary)'
+                                  }}>
+                                    <span>
+                                      📅 {new Date(linkedMessage.created_at).toLocaleDateString()}
+                                    </span>
+                                    <span style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      background: 'var(--bg-secondary)',
+                                      color: 'var(--accent)',
+                                      fontWeight: 500
+                                    }}>
+                                      View Message →
+                                    </span>
+                                  </div>
+                                )}
+                                {!linkedMessage && highlight.highlight_text && (
+                                  <div style={{
+                                    marginTop: '16px',
+                                    paddingTop: '16px',
+                                    borderTop: '1px solid var(--border)',
+                                    fontSize: '12px',
+                                    color: 'var(--text-secondary)'
+                                  }}>
+                                    📅 {new Date(highlight.created_at).toLocaleDateString()}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                      </div>
+                    )}
                   </div>
                 )}
 
