@@ -158,6 +158,8 @@ export default function Dashboard() {
   const [communityGoals, setCommunityGoals] = useState<CommunityGoal[]>([])
   const [communityEvents, setCommunityEvents] = useState<CommunityEvent[]>([])
   const [collaborativeProjects, setCollaborativeProjects] = useState<CollaborativeProject[]>([])
+  const [messageReactions, setMessageReactions] = useState<{ [messageId: string]: MessageReaction[] }>({})
+  const [reactionStats, setReactionStats] = useState<{ [messageId: string]: { [reactionType: string]: number } }>({})
   
   const navigate = useNavigate()
 
@@ -441,6 +443,30 @@ export default function Dashboard() {
       )
       .subscribe()
 
+    // Subscribe to message reactions for real-time updates
+    const reactionsChannel = supabase
+      .channel('message_reactions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_reactions'
+        },
+        async (payload) => {
+          try {
+            const reaction = payload.new as any || payload.old as any
+            if (reaction && reaction.message_id) {
+              // Refresh reactions for this message
+              await fetchReactionsForMessage(reaction.message_id)
+            }
+          } catch (err) {
+            console.error('Error in reactions subscription callback:', err)
+          }
+        }
+      )
+      .subscribe()
+
     // Cleanup subscriptions on unmount
     return () => {
       messageChannels.forEach(channel => {
@@ -454,6 +480,7 @@ export default function Dashboard() {
         channel.unsubscribe()
       })
       voteResponsesChannel.unsubscribe()
+      reactionsChannel.unsubscribe()
     }
 
     // Subscribe to challenge changes for each vent link
@@ -872,6 +899,39 @@ export default function Dashboard() {
 
         if (msgsError) throw msgsError
         setMessages(msgs || [])
+
+        // Fetch reactions for all messages
+        if (msgs && msgs.length > 0) {
+          const messageIds = msgs.map(msg => msg.id)
+          const { data: reactionsData, error: reactionsError } = await supabase
+            .from('message_reactions')
+            .select('*')
+            .in('message_id', messageIds)
+            .order('created_at', { ascending: false })
+
+          if (!reactionsError && reactionsData) {
+            // Group reactions by message_id
+            const reactionsByMessage: { [messageId: string]: MessageReaction[] } = {}
+            const statsByMessage: { [messageId: string]: { [reactionType: string]: number } } = {}
+
+            reactionsData.forEach((reaction) => {
+              if (!reactionsByMessage[reaction.message_id]) {
+                reactionsByMessage[reaction.message_id] = []
+              }
+              reactionsByMessage[reaction.message_id].push(reaction)
+
+              // Count reactions by type
+              if (!statsByMessage[reaction.message_id]) {
+                statsByMessage[reaction.message_id] = {}
+              }
+              statsByMessage[reaction.message_id][reaction.reaction_type] = 
+                (statsByMessage[reaction.message_id][reaction.reaction_type] || 0) + 1
+            })
+
+            setMessageReactions(reactionsByMessage)
+            setReactionStats(statsByMessage)
+          }
+        }
 
         // Fetch polls for all vent links
         const { data: pollsData, error: pollsError } = await supabase
@@ -2483,6 +2543,95 @@ export default function Dashboard() {
       console.error('Error deleting highlight:', err)
     } finally {
       setDeletingHighlight(null)
+    }
+  }
+
+  async function fetchReactionsForMessage(messageId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('message_reactions')
+        .select('*')
+        .eq('message_id', messageId)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        if (error.code !== 'PGRST116' && error.code !== '42501') {
+          console.error('Error fetching reactions:', error)
+        }
+        return
+      }
+
+      // Update reactions for this message
+      setMessageReactions(prev => ({
+        ...prev,
+        [messageId]: data || []
+      }))
+
+      // Update stats
+      const stats: { [reactionType: string]: number } = {}
+      data?.forEach((reaction) => {
+        stats[reaction.reaction_type] = (stats[reaction.reaction_type] || 0) + 1
+      })
+      setReactionStats(prev => ({
+        ...prev,
+        [messageId]: stats
+      }))
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Error fetching reactions:', err)
+      }
+    }
+  }
+
+  async function addReaction(messageId: string, reactionType: string) {
+    try {
+      // Hash IP for privacy (in production, this would be done server-side)
+      const ipHash = 'anonymous' // Simplified for now
+      
+      const { error } = await supabase
+        .from('message_reactions')
+        .insert({
+          message_id: messageId,
+          reaction_type: reactionType,
+          ip_hash: ipHash
+        })
+
+      if (error) {
+        // If it's a unique constraint error, the reaction already exists
+        if (error.code === '23505') {
+          // Try to remove it instead (toggle behavior)
+          await removeReaction(messageId, reactionType)
+          return
+        }
+        console.error('Error adding reaction:', error)
+      } else {
+        // Refresh reactions for this message
+        await fetchReactionsForMessage(messageId)
+      }
+    } catch (err) {
+      console.error('Error adding reaction:', err)
+    }
+  }
+
+  async function removeReaction(messageId: string, reactionType: string) {
+    try {
+      const ipHash = 'anonymous' // Simplified for now
+      
+      const { error } = await supabase
+        .from('message_reactions')
+        .delete()
+        .eq('message_id', messageId)
+        .eq('reaction_type', reactionType)
+        .eq('ip_hash', ipHash)
+
+      if (error) {
+        console.error('Error removing reaction:', error)
+      } else {
+        // Refresh reactions for this message
+        await fetchReactionsForMessage(messageId)
+      }
+    } catch (err) {
+      console.error('Error removing reaction:', err)
     }
   }
 
@@ -5892,12 +6041,104 @@ export default function Dashboard() {
                   <div className="hub-reactions-view">
                     <div className="hub-section-header">
                       <h3>Live Reactions</h3>
+                      <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                        View reaction statistics across all messages
+                      </p>
                     </div>
-                    <div className="empty-state-compact">
-                      <div className="empty-icon">😊</div>
-                      <p>Reactions are enabled</p>
-                      <p className="empty-hint">Your community can react to messages with emojis</p>
-                    </div>
+                    {messages.length === 0 ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">😊</div>
+                        <p>No messages yet</p>
+                        <p className="empty-hint">Reactions will appear here once messages are received</p>
+                      </div>
+                    ) : (
+                      <div>
+                        {/* Overall Stats */}
+                        <div className="card" style={{ marginBottom: '20px', padding: '20px' }}>
+                          <h4 style={{ marginBottom: '16px' }}>Overall Reaction Stats</h4>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '12px' }}>
+                            {['❤️', '👍', '🎉', '🔥', '💯', '😊', '🙏', '✨'].map((emoji) => {
+                              let totalCount = 0
+                              Object.values(reactionStats).forEach((stats) => {
+                                totalCount += stats[emoji] || 0
+                              })
+                              return (
+                                <div
+                                  key={emoji}
+                                  style={{
+                                    padding: '12px',
+                                    background: 'var(--bg-secondary)',
+                                    borderRadius: '8px',
+                                    textAlign: 'center',
+                                    border: '1px solid var(--border)'
+                                  }}
+                                >
+                                  <div style={{ fontSize: '24px', marginBottom: '4px' }}>{emoji}</div>
+                                  <div style={{ fontSize: '18px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                    {totalCount}
+                                  </div>
+                                </div>
+                              )
+                            })}
+                          </div>
+                        </div>
+
+                        {/* Messages with Reactions */}
+                        <div>
+                          <h4 style={{ marginBottom: '16px' }}>Messages with Reactions</h4>
+                          {messages.filter(msg => reactionStats[msg.id] && Object.keys(reactionStats[msg.id]).length > 0).length === 0 ? (
+                            <div className="empty-state-compact">
+                              <div className="empty-icon">😊</div>
+                              <p>No reactions yet</p>
+                              <p className="empty-hint">Reactions will appear here when your community reacts to messages</p>
+                            </div>
+                          ) : (
+                            <div className="polls-list">
+                              {messages
+                                .filter(msg => reactionStats[msg.id] && Object.keys(reactionStats[msg.id]).length > 0)
+                                .map((message) => {
+                                  const stats = reactionStats[message.id] || {}
+                                  const totalReactions = Object.values(stats).reduce((sum, count) => sum + count, 0)
+                                  return (
+                                    <div key={message.id} className="poll-card">
+                                      <div className="poll-card-header">
+                                        <div style={{ flex: 1 }}>
+                                          <p style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                            {truncateText(message.body, 100)}
+                                          </p>
+                                          <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px' }}>
+                                            {Object.entries(stats).map(([emoji, count]) => (
+                                              <span
+                                                key={emoji}
+                                                style={{
+                                                  display: 'inline-flex',
+                                                  alignItems: 'center',
+                                                  gap: '4px',
+                                                  padding: '6px 12px',
+                                                  background: 'var(--bg-secondary)',
+                                                  borderRadius: '6px',
+                                                  border: '1px solid var(--border)',
+                                                  fontSize: '14px'
+                                                }}
+                                              >
+                                                <span>{emoji}</span>
+                                                <span style={{ fontWeight: 600 }}>{count}</span>
+                                              </span>
+                                            ))}
+                                          </div>
+                                        </div>
+                                        <div className="poll-stats">
+                                          <span className="poll-stat">😊 {totalReactions} total</span>
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
 
@@ -6166,6 +6407,46 @@ export default function Dashboard() {
                           className="tag-input-modern"
                         />
                       </div>
+                    </div>
+                  </div>
+
+                  {/* Reactions Section */}
+                  <div className="message-info-card">
+                    <div className="info-card-header">
+                      <span className="info-card-icon">😊</span>
+                      <h4 className="info-card-title">Reactions</h4>
+                    </div>
+                    <div className="info-card-content">
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', marginBottom: '12px' }}>
+                        {['❤️', '👍', '🎉', '🔥', '💯', '😊', '🙏', '✨'].map((emoji) => {
+                          const count = reactionStats[selectedMessage.id]?.[emoji] || 0
+                          return (
+                            <button
+                              key={emoji}
+                              onClick={() => addReaction(selectedMessage.id, emoji)}
+                              className="btn btn-small"
+                              style={{
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '6px',
+                                padding: '6px 12px',
+                                background: count > 0 ? 'var(--accent)' : 'var(--bg-secondary)',
+                                color: count > 0 ? 'white' : 'var(--text-primary)',
+                                border: '1px solid var(--border)',
+                                borderRadius: '6px',
+                                cursor: 'pointer'
+                              }}
+                              title={`Add ${emoji} reaction`}
+                            >
+                              <span>{emoji}</span>
+                              {count > 0 && <span style={{ fontSize: '12px', fontWeight: 600 }}>{count}</span>}
+                            </button>
+                          )
+                        })}
+                      </div>
+                      {reactionStats[selectedMessage.id] && Object.keys(reactionStats[selectedMessage.id]).length === 0 && (
+                        <p className="info-empty-state">No reactions yet</p>
+                      )}
                     </div>
                   </div>
 
