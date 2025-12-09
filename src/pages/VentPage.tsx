@@ -1170,8 +1170,8 @@ export default function VentPage() {
                     </p>
                   )}
                   <div style={{ marginBottom: '20px' }}>
-                    <textarea
-                      className="textarea"
+          <textarea
+            className="textarea"
                       placeholder="Share your feedback, suggestions, or feature requests..."
                       value={feedbackResponses[form.id] || ''}
                       onChange={(e) => setFeedbackResponses((prev) => ({ ...prev, [form.id]: e.target.value }))}
@@ -1320,7 +1320,7 @@ export default function VentPage() {
                        isEnded ? '⚫ Ended' :
                        '🟢 Active'}
                     </span>
-                  </div>
+            </div>
                   
                   {challenge.description && (
                     <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
@@ -1387,14 +1387,14 @@ export default function VentPage() {
                         rows={5}
                         style={{ marginBottom: '12px' }}
                       />
-                      <button
+          <button
                         onClick={() => submitChallenge(challenge.id)}
-                        className="btn btn-primary"
+            className="btn btn-primary"
                         disabled={submittingChallenge === challenge.id || !(submissionTexts[challenge.id] || '').trim()}
                         style={{ width: '100%' }}
-                      >
+          >
                         {submittingChallenge === challenge.id ? 'Submitting...' : 'Submit Entry'}
-                      </button>
+          </button>
                     </div>
                   ) : (
                     <div style={{

@@ -2176,11 +2176,37 @@ export default function Dashboard() {
 
       if (error) throw error
 
-      setFeedbackForms([newForm as FeedbackForm, ...feedbackForms])
+      // Add the new form to state immediately for instant UI update
+      setFeedbackForms(prev => [newForm as FeedbackForm, ...prev])
       setNewFeedbackTitle('')
       setNewFeedbackDescription('')
       setNewFeedbackType('feedback')
       setShowCreateFeedback(false)
+      
+      // Refresh feedback forms from server to ensure consistency and get response counts
+      if (ventLinks.length > 0) {
+        const linkIds = ventLinks.map(l => l.id)
+        const { data: feedbackData, error: fetchError } = await supabase
+          .from('feedback_forms')
+          .select('*')
+          .in('vent_link_id', linkIds)
+          .order('created_at', { ascending: false })
+        
+        if (!fetchError && feedbackData) {
+          setFeedbackForms(feedbackData)
+          
+          // Fetch response counts for each form
+          const counts: { [formId: string]: number } = {}
+          for (const form of feedbackData) {
+            const { count } = await supabase
+              .from('feedback_responses')
+              .select('*', { count: 'exact', head: true })
+              .eq('form_id', form.id)
+            counts[form.id] = count || 0
+          }
+          setFeedbackResponseCounts(prev => ({ ...prev, ...counts }))
+        }
+      }
     } catch (err: any) {
       alert(err.message || 'Failed to create feedback form')
     } finally {
@@ -7004,9 +7030,14 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    {primaryVentLink && feedbackForms.length > 0 ? (
+                    {primaryVentLink && (() => {
+                      const primaryForms = feedbackForms.filter(f => f.vent_link_id === primaryVentLink.id)
+                      return primaryForms.length > 0
+                    })() ? (
                       <div className="polls-list">
-                        {feedbackForms.map((form) => (
+                        {feedbackForms
+                          .filter(f => f.vent_link_id === primaryVentLink.id)
+                          .map((form) => (
                           <div key={form.id} className={`poll-card ${!form.is_active ? 'inactive' : ''}`}>
                             <div className="poll-card-header">
                               <div style={{ flex: 1 }}>
