@@ -81,6 +81,17 @@ export default function Dashboard() {
   const [answeringQuestion, setAnsweringQuestion] = useState<string | null>(null)
   const [answerText, setAnswerText] = useState('')
   const [challenges, setChallenges] = useState<Challenge[]>([])
+  const [challengeSubmissions, setChallengeSubmissions] = useState<{ [challengeId: string]: ChallengeSubmission[] }>({})
+  const [showCreateChallenge, setShowCreateChallenge] = useState(false)
+  const [newChallengeTitle, setNewChallengeTitle] = useState('')
+  const [newChallengeDescription, setNewChallengeDescription] = useState('')
+  const [newChallengeType, setNewChallengeType] = useState<'contest' | 'giveaway' | 'challenge'>('challenge')
+  const [newChallengeStartsAt, setNewChallengeStartsAt] = useState('')
+  const [newChallengeEndsAt, setNewChallengeEndsAt] = useState('')
+  const [newChallengePrize, setNewChallengePrize] = useState('')
+  const [newChallengeRules, setNewChallengeRules] = useState('')
+  const [creatingChallenge, setCreatingChallenge] = useState(false)
+  const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null)
   const [communityVotes, setCommunityVotes] = useState<CommunityVoteWithOptions[]>([])
   const [feedbackForms, setFeedbackForms] = useState<FeedbackForm[]>([])
   const [highlights, setHighlights] = useState<CommunityHighlight[]>([])
@@ -485,6 +496,29 @@ export default function Dashboard() {
             questionsBySession[session.id] = questionsData || []
           }
           setQaQuestions(questionsBySession)
+        }
+
+        // Fetch Challenges
+        const { data: challengesData, error: challengesError } = await supabase
+          .from('challenges')
+          .select('*')
+          .in('vent_link_id', linkIds)
+          .order('created_at', { ascending: false })
+
+        if (!challengesError && challengesData) {
+          setChallenges(challengesData)
+          
+          // Fetch submissions for each challenge
+          const submissionsByChallenge: { [challengeId: string]: ChallengeSubmission[] } = {}
+          for (const challenge of challengesData) {
+            const { data: submissionsData } = await supabase
+              .from('challenge_submissions')
+              .select('*')
+              .eq('challenge_id', challenge.id)
+              .order('created_at', { ascending: false })
+            submissionsByChallenge[challenge.id] = submissionsData || []
+          }
+          setChallengeSubmissions(submissionsByChallenge)
         }
       }
 
@@ -1030,6 +1064,103 @@ export default function Dashboard() {
       await fetchData()
     } catch (err: any) {
       alert(err.message || 'Failed to delete Q&A session')
+    }
+  }
+
+  async function createChallenge() {
+    if (!primaryVentLink) {
+      alert('Please create a vent link first')
+      return
+    }
+
+    if (!newChallengeTitle.trim()) {
+      alert('Please enter a challenge title')
+      return
+    }
+
+    setCreatingChallenge(true)
+    try {
+      const { error } = await supabase
+        .from('challenges')
+        .insert({
+          vent_link_id: primaryVentLink.id,
+          title: newChallengeTitle.trim(),
+          description: newChallengeDescription.trim() || null,
+          challenge_type: newChallengeType,
+          is_active: true,
+          starts_at: newChallengeStartsAt ? new Date(newChallengeStartsAt).toISOString() : null,
+          ends_at: newChallengeEndsAt ? new Date(newChallengeEndsAt).toISOString() : null,
+          prize_description: newChallengePrize.trim() || null,
+          rules: newChallengeRules.trim() || null,
+        })
+
+      if (error) throw error
+
+      setNewChallengeTitle('')
+      setNewChallengeDescription('')
+      setNewChallengeType('challenge')
+      setNewChallengeStartsAt('')
+      setNewChallengeEndsAt('')
+      setNewChallengePrize('')
+      setNewChallengeRules('')
+      setShowCreateChallenge(false)
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to create challenge')
+    } finally {
+      setCreatingChallenge(false)
+    }
+  }
+
+  async function toggleChallengeActive(challengeId: string, isActive: boolean) {
+    const { error } = await supabase
+      .from('challenges')
+      .update({ is_active: !isActive })
+      .eq('id', challengeId)
+
+    if (!error) {
+      await fetchData()
+    }
+  }
+
+  async function markSubmissionWinner(submissionId: string, challengeId: string, isWinner: boolean) {
+    try {
+      const { error } = await supabase
+        .from('challenge_submissions')
+        .update({ is_winner: isWinner })
+        .eq('id', submissionId)
+
+      if (error) throw error
+
+      // Refresh submissions
+      const { data: submissionsData } = await supabase
+        .from('challenge_submissions')
+        .select('*')
+        .eq('challenge_id', challengeId)
+        .order('created_at', { ascending: false })
+      
+      setChallengeSubmissions(prev => ({
+        ...prev,
+        [challengeId]: submissionsData || []
+      }))
+    } catch (err: any) {
+      alert(err.message || 'Failed to update submission')
+    }
+  }
+
+  async function deleteChallenge(challengeId: string) {
+    if (!confirm('Are you sure you want to delete this challenge? This will also delete all submissions.')) return
+    
+    try {
+      const { error } = await supabase
+        .from('challenges')
+        .delete()
+        .eq('id', challengeId)
+
+      if (error) throw error
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete challenge')
     }
   }
 
@@ -3135,23 +3266,246 @@ export default function Dashboard() {
                     <div className="hub-section-header">
                       <h3>Challenges & Contests</h3>
                       {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Challenge</button>
+                        <button 
+                          className="btn btn-secondary"
+                          onClick={() => setShowCreateChallenge(!showCreateChallenge)}
+                        >
+                          {showCreateChallenge ? 'Cancel' : '+ New Challenge'}
+                        </button>
                       )}
-                  </div>
+                    </div>
+
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🏆</div>
                         <p>Create a vent link first</p>
                         <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
-                  </div>
+                      </div>
+                    ) : showCreateChallenge ? (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label>Challenge Title *</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Creative Writing Contest"
+                            value={newChallengeTitle}
+                            onChange={(e) => setNewChallengeTitle(e.target.value)}
+                            disabled={creatingChallenge}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Challenge Type *</label>
+                          <select
+                            className="select"
+                            value={newChallengeType}
+                            onChange={(e) => setNewChallengeType(e.target.value as 'contest' | 'giveaway' | 'challenge')}
+                            disabled={creatingChallenge}
+                          >
+                            <option value="challenge">Challenge</option>
+                            <option value="contest">Contest</option>
+                            <option value="giveaway">Giveaway</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label>Description (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="What is this challenge about?"
+                            value={newChallengeDescription}
+                            onChange={(e) => setNewChallengeDescription(e.target.value)}
+                            disabled={creatingChallenge}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Prize Description (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="What can participants win?"
+                            value={newChallengePrize}
+                            onChange={(e) => setNewChallengePrize(e.target.value)}
+                            disabled={creatingChallenge}
+                            rows={2}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Rules (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="Challenge rules and guidelines..."
+                            value={newChallengeRules}
+                            onChange={(e) => setNewChallengeRules(e.target.value)}
+                            disabled={creatingChallenge}
+                            rows={3}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                          <div className="form-group">
+                            <label>Start Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={newChallengeStartsAt}
+                              onChange={(e) => setNewChallengeStartsAt(e.target.value)}
+                              disabled={creatingChallenge}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>End Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={newChallengeEndsAt}
+                              onChange={(e) => setNewChallengeEndsAt(e.target.value)}
+                              disabled={creatingChallenge}
+                            />
+                          </div>
+                        </div>
+                        <button
+                          onClick={createChallenge}
+                          className="btn"
+                          disabled={creatingChallenge || !newChallengeTitle.trim()}
+                        >
+                          {creatingChallenge ? 'Creating...' : 'Create Challenge'}
+                        </button>
+                      </div>
+                    ) : challenges.length > 0 ? (
+                      <div className="polls-list">
+                        {challenges.map((challenge) => {
+                          const submissions = challengeSubmissions[challenge.id] || []
+                          const winnerCount = submissions.filter(s => s.is_winner).length
+                          return (
+                            <div key={challenge.id} className={`poll-card ${!challenge.is_active ? 'inactive' : ''}`}>
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <h3>
+                                    {challenge.challenge_type === 'contest' && '🏆 '}
+                                    {challenge.challenge_type === 'giveaway' && '🎁 '}
+                                    {challenge.title}
+                                  </h3>
+                                  {challenge.description && (
+                                    <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                      {challenge.description}
+                                    </p>
+                                  )}
+                                  {challenge.prize_description && (
+                                    <p style={{ marginTop: '8px', color: 'var(--accent)', fontSize: '14px', fontWeight: 500 }}>
+                                      🎁 Prize: {challenge.prize_description}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    onClick={() => toggleChallengeActive(challenge.id, challenge.is_active)}
+                                    className="btn btn-small btn-secondary"
+                                  >
+                                    {challenge.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  <button
+                                    onClick={() => setSelectedChallenge(selectedChallenge?.id === challenge.id ? null : challenge)}
+                                    className="btn btn-small"
+                                  >
+                                    {selectedChallenge?.id === challenge.id ? '👁️ Hide' : '📝 Submissions'}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteChallenge(challenge.id)}
+                                    className="btn btn-small btn-danger"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="poll-stats">
+                                <span className="poll-stat">📝 {submissions.length} submissions</span>
+                                {winnerCount > 0 && (
+                                  <span className="poll-stat" style={{ color: 'var(--accent)' }}>
+                                    🏆 {winnerCount} winner{winnerCount > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                                <span className="poll-stat">{challenge.is_active ? '✅ Active' : '⏸️ Inactive'}</span>
+                                {challenge.starts_at && (
+                                  <span className="poll-stat">
+                                    📅 Starts {new Date(challenge.starts_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                                {challenge.ends_at && (
+                                  <span className="poll-stat">
+                                    ⏰ Ends {new Date(challenge.ends_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                              {selectedChallenge?.id === challenge.id && (
+                                <div className="poll-results" style={{ marginTop: '20px' }}>
+                                  <h4>Submissions ({submissions.length})</h4>
+                                  {submissions.length === 0 ? (
+                                    <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+                                      No submissions yet
+                                    </p>
+                                  ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
+                                      {submissions.map((submission) => (
+                                        <div key={submission.id} style={{ 
+                                          padding: '16px', 
+                                          background: submission.is_winner ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
+                                          borderRadius: '8px',
+                                          border: submission.is_winner ? '2px solid var(--success)' : '1px solid var(--border)'
+                                        }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
+                                            <p style={{ fontWeight: 500, flex: 1 }}>{submission.submission_text}</p>
+                                            {submission.is_winner && (
+                                              <span style={{ 
+                                                background: 'var(--success)', 
+                                                color: 'white', 
+                                                padding: '4px 8px', 
+                                                borderRadius: '4px',
+                                                fontSize: '12px',
+                                                fontWeight: 600,
+                                                marginLeft: '12px'
+                                              }}>
+                                                🏆 Winner
+                                              </span>
+                                            )}
+                                          </div>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                              {new Date(submission.created_at).toLocaleString()}
+                                            </span>
+                                            <button
+                                              onClick={() => markSubmissionWinner(submission.id, challenge.id, !submission.is_winner)}
+                                              className="btn btn-small"
+                                              style={{ 
+                                                background: submission.is_winner ? 'var(--bg-secondary)' : 'var(--success)',
+                                                color: submission.is_winner ? 'var(--text-primary)' : 'white'
+                                              }}
+                                            >
+                                              {submission.is_winner ? 'Remove Winner' : 'Mark as Winner'}
+                                            </button>
+                                          </div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
                     ) : (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🏆</div>
                         <p>No challenges yet</p>
                         <p className="empty-hint">Create contests, giveaways, and challenges for your community</p>
-                </div>
+                        <button
+                          onClick={() => setShowCreateChallenge(true)}
+                          className="btn"
+                        >
+                          Create Your First Challenge
+                        </button>
+                      </div>
                     )}
-                    </div>
+                  </div>
                 )}
 
                 {/* Community Voting View */}

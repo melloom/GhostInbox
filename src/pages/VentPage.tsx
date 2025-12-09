@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { supabase, VentLink, PollWithOptions, QASession, QAQuestion } from '../lib/supabase'
+import { supabase, VentLink, PollWithOptions, QASession, QAQuestion, Challenge, ChallengeSubmission } from '../lib/supabase'
 import { validateMessage, prepareMessageForStorage } from '../lib/validation'
 import { sanitizeErrorMessage } from '../lib/errorHandler'
 import './VentPage.css'
@@ -32,11 +32,15 @@ export default function VentPage() {
   const [activePolls, setActivePolls] = useState<PollWithOptions[]>([])
   const [votedPollId, setVotedPollId] = useState<string | null>(null)
   const [voting, setVoting] = useState(false)
-  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa'>('message')
+  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa' | 'challenges'>('message')
   const [activeQASessions, setActiveQASessions] = useState<QASession[]>([])
   const [qaQuestions, setQaQuestions] = useState<{ [sessionId: string]: QAQuestion[] }>({})
   const [submittingQuestion, setSubmittingQuestion] = useState<string | null>(null)
   const [questionTexts, setQuestionTexts] = useState<{ [sessionId: string]: string }>({})
+  const [activeChallenges, setActiveChallenges] = useState<Challenge[]>([])
+  const [challengeSubmissions, setChallengeSubmissions] = useState<{ [challengeId: string]: ChallengeSubmission[] }>({})
+  const [submittingChallenge, setSubmittingChallenge] = useState<string | null>(null)
+  const [submissionTexts, setSubmissionTexts] = useState<{ [challengeId: string]: string }>({})
 
   useEffect(() => {
     if (!slug) return
@@ -139,6 +143,30 @@ export default function VentPage() {
             questionsBySession[session.id] = questionsData || []
           }
           setQaQuestions(questionsBySession)
+        }
+
+        // Fetch active Challenges
+        const { data: challengesData, error: challengesError } = await supabase
+          .from('challenges')
+          .select('*')
+          .eq('vent_link_id', ventLinkData.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+
+        if (!challengesError && challengesData && challengesData.length > 0) {
+          setActiveChallenges(challengesData)
+          
+          // Fetch submissions for each challenge
+          const submissionsByChallenge: { [challengeId: string]: ChallengeSubmission[] } = {}
+          for (const challenge of challengesData) {
+            const { data: submissionsData } = await supabase
+              .from('challenge_submissions')
+              .select('*')
+              .eq('challenge_id', challenge.id)
+              .order('created_at', { ascending: false })
+            submissionsByChallenge[challenge.id] = submissionsData || []
+          }
+          setChallengeSubmissions(submissionsByChallenge)
         }
       } catch (err: any) {
         setVentLink(null)
@@ -379,6 +407,51 @@ export default function VentPage() {
       setStatus(sanitizedError)
     } finally {
       setSubmittingQuestion(null)
+    }
+  }
+
+  async function submitChallenge(challengeId: string) {
+    const submissionText = submissionTexts[challengeId] || ''
+    if (!submissionText.trim()) {
+      setStatus('Please enter your submission')
+      return
+    }
+
+    setSubmittingChallenge(challengeId)
+    try {
+      const { error } = await supabase
+        .from('challenge_submissions')
+        .insert({
+          challenge_id: challengeId,
+          submission_text: submissionText.trim(),
+          ip_hash: null,
+        })
+
+      if (error) {
+        const sanitizedError = sanitizeErrorMessage(error)
+        setStatus(sanitizedError)
+        return
+      }
+
+      setSubmissionTexts(prev => ({ ...prev, [challengeId]: '' }))
+      setStatus('Submission sent!')
+      
+      // Refresh submissions
+      const { data: submissionsData } = await supabase
+        .from('challenge_submissions')
+        .select('*')
+        .eq('challenge_id', challengeId)
+        .order('created_at', { ascending: false })
+      
+      setChallengeSubmissions(prev => ({
+        ...prev,
+        [challengeId]: submissionsData || []
+      }))
+    } catch (err: any) {
+      const sanitizedError = sanitizeErrorMessage(err)
+      setStatus(sanitizedError)
+    } finally {
+      setSubmittingChallenge(null)
     }
   }
 
@@ -645,6 +718,105 @@ export default function VentPage() {
                                 <p style={{ marginTop: '4px' }}>{question.answer_text}</p>
                               </div>
                             )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {activeTab === 'challenges' && (
+          <div className="tab-content">
+            {activeChallenges.map((challenge) => {
+              const submissions = challengeSubmissions[challenge.id] || []
+              const winners = submissions.filter(s => s.is_winner)
+              return (
+                <div key={challenge.id} className="poll-section">
+                  <h3 className="poll-question">
+                    {challenge.challenge_type === 'contest' && '🏆 '}
+                    {challenge.challenge_type === 'giveaway' && '🎁 '}
+                    {challenge.title}
+                  </h3>
+                  {challenge.description && (
+                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                      {challenge.description}
+                    </p>
+                  )}
+                  {challenge.prize_description && (
+                    <div style={{ 
+                      textAlign: 'center', 
+                      padding: '12px', 
+                      background: 'rgba(139, 92, 246, 0.1)', 
+                      borderRadius: '8px',
+                      marginBottom: '20px',
+                      border: '1px solid var(--accent)'
+                    }}>
+                      <strong style={{ color: 'var(--accent)' }}>🎁 Prize: {challenge.prize_description}</strong>
+                    </div>
+                  )}
+                  {challenge.rules && (
+                    <div style={{ 
+                      padding: '12px', 
+                      background: 'var(--bg-secondary)', 
+                      borderRadius: '8px',
+                      marginBottom: '20px',
+                      fontSize: '14px'
+                    }}>
+                      <strong>Rules:</strong>
+                      <p style={{ marginTop: '8px', whiteSpace: 'pre-line' }}>{challenge.rules}</p>
+                    </div>
+                  )}
+                  
+                  <div style={{ marginBottom: '20px' }}>
+                    <textarea
+                      className="textarea"
+                      placeholder="Enter your submission..."
+                      value={submissionTexts[challenge.id] || ''}
+                      onChange={(e) => setSubmissionTexts(prev => ({ ...prev, [challenge.id]: e.target.value }))}
+                      rows={5}
+                      style={{ marginBottom: '12px' }}
+                    />
+                    <button
+                      onClick={() => submitChallenge(challenge.id)}
+                      className="btn btn-primary"
+                      disabled={submittingChallenge === challenge.id || !(submissionTexts[challenge.id] || '').trim()}
+                      style={{ width: '100%' }}
+                    >
+                      {submittingChallenge === challenge.id ? 'Submitting...' : 'Submit Entry'}
+                    </button>
+                  </div>
+
+                  {submissions.length > 0 && (
+                    <div className="poll-results">
+                      <h4 style={{ marginBottom: '16px', textAlign: 'center' }}>
+                        Submissions ({submissions.length})
+                        {winners.length > 0 && ` • ${winners.length} Winner${winners.length > 1 ? 's' : ''}`}
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {submissions.map((submission) => (
+                          <div key={submission.id} style={{ 
+                            padding: '14px', 
+                            background: submission.is_winner ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
+                            borderRadius: '8px',
+                            border: submission.is_winner ? '2px solid var(--success)' : '1px solid var(--border)'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'start', gap: '12px' }}>
+                              {submission.is_winner && (
+                                <span style={{ fontSize: '20px' }}>🏆</span>
+                              )}
+                              <div style={{ flex: 1 }}>
+                                <p style={{ fontWeight: submission.is_winner ? 600 : 500, marginBottom: '6px' }}>
+                                  {submission.submission_text}
+                                </p>
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                  {new Date(submission.created_at).toLocaleString()}
+                                </span>
+                              </div>
+                            </div>
                           </div>
                         ))}
                       </div>
