@@ -18,14 +18,23 @@ function App() {
 
   useEffect(() => {
     // Check active session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setUser(session?.user ?? null)
+    supabase.auth.getSession().then(({ data: { session }, error }) => {
+      if (error) {
+        // Only log in development, and only if it's not a 403 (which is expected for unauthenticated users)
+        if (import.meta.env.DEV && error.status !== 403) {
+          console.error('Error getting session:', error)
+        }
+        setUser(null)
+      } else {
+        setUser(session?.user ?? null)
+      }
       setLoading(false)
     }).catch((error) => {
-      // Log error securely (only in development)
-      if (import.meta.env.DEV) {
+      // Only log in development, and only if it's not a 403
+      if (import.meta.env.DEV && error?.status !== 403) {
         console.error('Error getting session:', error)
       }
+      setUser(null)
       setLoading(false)
     })
 
