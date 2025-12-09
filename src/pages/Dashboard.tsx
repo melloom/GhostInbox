@@ -189,6 +189,19 @@ export default function Dashboard() {
   const [updatingEvent, setUpdatingEvent] = useState(false)
   const [deletingEvent, setDeletingEvent] = useState<string | null>(null)
   const [collaborativeProjects, setCollaborativeProjects] = useState<CollaborativeProject[]>([])
+  const [projectContributions, setProjectContributions] = useState<{ [projectId: string]: any[] }>({})
+  const [showCreateProject, setShowCreateProject] = useState(false)
+  const [newProjectTitle, setNewProjectTitle] = useState('')
+  const [newProjectDescription, setNewProjectDescription] = useState('')
+  const [newProjectType, setNewProjectType] = useState<'idea' | 'project' | 'collaboration'>('project')
+  const [creatingProject, setCreatingProject] = useState(false)
+  const [editingProject, setEditingProject] = useState<string | null>(null)
+  const [editProjectTitle, setEditProjectTitle] = useState('')
+  const [editProjectDescription, setEditProjectDescription] = useState('')
+  const [editProjectType, setEditProjectType] = useState<'idea' | 'project' | 'collaboration'>('project')
+  const [updatingProject, setUpdatingProject] = useState(false)
+  const [deletingProject, setDeletingProject] = useState<string | null>(null)
+  const [selectedProject, setSelectedProject] = useState<string | null>(null)
   const [messageReactions, setMessageReactions] = useState<{ [messageId: string]: MessageReaction[] }>({})
   const [reactionStats, setReactionStats] = useState<{ [messageId: string]: { [reactionType: string]: number } }>({})
   
@@ -603,6 +616,78 @@ export default function Dashboard() {
       reactionsChannel.unsubscribe()
       goalsChannel.unsubscribe()
       eventsChannel.unsubscribe()
+    }
+
+    // Subscribe to collaborative projects for real-time updates
+    const projectsChannel = supabase
+      .channel('collaborative_projects_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'collaborative_projects'
+        },
+        async () => {
+          try {
+            if (ventLinks.length > 0) {
+              await fetchProjects(ventLinks.map(l => l.id))
+            }
+          } catch (err: any) {
+            if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+              if (import.meta.env.DEV) {
+                console.error('Error in projects subscription callback:', err)
+              }
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    // Subscribe to project contributions for real-time updates
+    const contributionsChannel = supabase
+      .channel('project_contributions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'project_contributions'
+        },
+        async (payload) => {
+          try {
+            const contribution = payload.new as any || payload.old as any
+            if (contribution && contribution.project_id) {
+              await fetchContributionsForProject(contribution.project_id)
+            }
+          } catch (err: any) {
+            if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+              if (import.meta.env.DEV) {
+                console.error('Error in contributions subscription callback:', err)
+              }
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      messageChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      pollChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      votesChannel.unsubscribe()
+      voteChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      voteResponsesChannel.unsubscribe()
+      reactionsChannel.unsubscribe()
+      goalsChannel.unsubscribe()
+      eventsChannel.unsubscribe()
+      projectsChannel.unsubscribe()
+      contributionsChannel.unsubscribe()
     }
 
     // Subscribe to feedback forms for each vent link
@@ -1333,6 +1418,9 @@ export default function Dashboard() {
 
         // Fetch Community Events
         await fetchEvents(linkIds)
+
+        // Fetch Collaborative Projects
+        await fetchProjects(linkIds)
 
         // Fetch Feedback Forms
         try {
@@ -3227,6 +3315,206 @@ export default function Dashboard() {
     const eventDate = new Date(event.event_date)
     if (eventDate < now) return 'past'
     return 'upcoming'
+  }
+
+  async function fetchProjects(linkIds: string[]) {
+    try {
+      const { data, error } = await supabase
+        .from('collaborative_projects')
+        .select('*')
+        .in('vent_link_id', linkIds)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        if (error.code !== 'PGRST116' && error.code !== '42501') {
+          if (import.meta.env.DEV) {
+            console.error('Error fetching projects:', error)
+          }
+        }
+        return
+      }
+
+      if (data) {
+        setCollaborativeProjects(data || [])
+        // Fetch contributions for all projects
+        if (data.length > 0) {
+          const projectIds = data.map(p => p.id)
+          const { data: contributionsData, error: contributionsError } = await supabase
+            .from('project_contributions')
+            .select('*')
+            .in('project_id', projectIds)
+            .order('created_at', { ascending: false })
+
+          if (!contributionsError && contributionsData) {
+            const contributionsByProject: { [projectId: string]: any[] } = {}
+            contributionsData.forEach(contribution => {
+              if (!contributionsByProject[contribution.project_id]) {
+                contributionsByProject[contribution.project_id] = []
+              }
+              contributionsByProject[contribution.project_id].push(contribution)
+            })
+            setProjectContributions(contributionsByProject)
+          }
+        }
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Error fetching projects:', err)
+      }
+    }
+  }
+
+  async function fetchContributionsForProject(projectId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('project_contributions')
+        .select('*')
+        .eq('project_id', projectId)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        if (error.code !== 'PGRST116' && error.code !== '42501') {
+          if (import.meta.env.DEV) {
+            console.error('Error fetching contributions:', error)
+          }
+        }
+        return
+      }
+
+      setProjectContributions(prev => ({
+        ...prev,
+        [projectId]: data || []
+      }))
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Error fetching contributions:', err)
+      }
+    }
+  }
+
+  async function createProject() {
+    const primary = primaryVentLink
+    if (!primary) return
+    if (!newProjectTitle.trim()) {
+      alert('Please enter a project title')
+      return
+    }
+
+    setCreatingProject(true)
+    try {
+      const { error } = await supabase.from('collaborative_projects').insert({
+        vent_link_id: primary.id,
+        title: newProjectTitle.trim(),
+        description: newProjectDescription.trim() || null,
+        project_type: newProjectType,
+        is_active: true,
+      })
+
+      if (error) {
+        console.error('Error creating project:', error)
+        alert(error.message || 'Failed to create project')
+      } else {
+        await fetchProjects([primary.id])
+        setShowCreateProject(false)
+        setNewProjectTitle('')
+        setNewProjectDescription('')
+        setNewProjectType('project')
+      }
+    } catch (err: any) {
+      console.error('Error creating project:', err)
+      alert(err.message || 'Failed to create project')
+    } finally {
+      setCreatingProject(false)
+    }
+  }
+
+  async function toggleProjectActive(projectId: string, isActive: boolean) {
+    try {
+      const { error } = await supabase
+        .from('collaborative_projects')
+        .update({ is_active: !isActive })
+        .eq('id', projectId)
+
+      if (error) {
+        console.error('Error updating project:', error)
+      } else {
+        await fetchProjects(ventLinks.map(l => l.id))
+      }
+    } catch (err) {
+      console.error('Error updating project:', err)
+    }
+  }
+
+  async function startEditProject(project: CollaborativeProject) {
+    setEditingProject(project.id)
+    setEditProjectTitle(project.title)
+    setEditProjectDescription(project.description || '')
+    setEditProjectType(project.project_type)
+  }
+
+  async function cancelEditProject() {
+    setEditingProject(null)
+    setEditProjectTitle('')
+    setEditProjectDescription('')
+    setEditProjectType('project')
+  }
+
+  async function saveProjectEdit() {
+    if (!editingProject) return
+
+    setUpdatingProject(true)
+    try {
+      const { error } = await supabase
+        .from('collaborative_projects')
+        .update({
+          title: editProjectTitle.trim(),
+          description: editProjectDescription.trim() || null,
+          project_type: editProjectType,
+        })
+        .eq('id', editingProject)
+
+      if (error) {
+        console.error('Error updating project:', error)
+        alert(error.message || 'Failed to update project')
+      } else {
+        await fetchProjects(ventLinks.map(l => l.id))
+        cancelEditProject()
+      }
+    } catch (err: any) {
+      console.error('Error updating project:', err)
+      alert(err.message || 'Failed to update project')
+    } finally {
+      setUpdatingProject(false)
+    }
+  }
+
+  async function deleteProject(projectId: string) {
+    if (!confirm('Are you sure you want to delete this project? All contributions will also be deleted.')) return
+
+    setDeletingProject(projectId)
+    try {
+      const { error } = await supabase
+        .from('collaborative_projects')
+        .delete()
+        .eq('id', projectId)
+
+      if (error) {
+        console.error('Error deleting project:', error)
+        alert(error.message || 'Failed to delete project')
+      } else {
+        await fetchProjects(ventLinks.map(l => l.id))
+        setProjectContributions(prev => {
+          const updated = { ...prev }
+          delete updated[projectId]
+          return updated
+        })
+      }
+    } catch (err: any) {
+      console.error('Error deleting project:', err)
+      alert(err.message || 'Failed to delete project')
+    } finally {
+      setDeletingProject(null)
+    }
   }
 
   async function fetchReactionsForMessage(messageId: string) {
@@ -7995,24 +8283,318 @@ export default function Dashboard() {
                 {hubView === 'projects' && (
                   <div className="hub-projects-view">
                     <div className="hub-section-header">
-                      <h3>Collaborative Projects</h3>
-                      {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Project</button>
+                      <div className="hub-section-title">
+                        <h3>Collaborative Projects</h3>
+                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Start community-driven projects and collaborations
+                        </p>
+                      </div>
+                      {primaryVentLink ? (
+                        <button
+                          onClick={() => {
+                            if (editingProject) cancelEditProject()
+                            setShowCreateProject(!showCreateProject)
+                          }}
+                          className="btn btn-secondary"
+                        >
+                          {showCreateProject ? 'Cancel' : '+ New Project'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn btn-secondary"
+                        >
+                          Create Link First
+                        </button>
                       )}
                     </div>
+
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🤝</div>
-                        <p>Create a vent link first</p>
-                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                        <p>Create a vent link first to create projects</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Vent Link</button>
                       </div>
-                    ) : (
+                    ) : showCreateProject && !editingProject && (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label htmlFor="project-title">Project Title *</label>
+                          <input
+                            id="project-title"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Community Art Project or Feature Request"
+                            value={newProjectTitle}
+                            onChange={(e) => setNewProjectTitle(e.target.value)}
+                            disabled={creatingProject}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="project-description">Description (optional)</label>
+                          <textarea
+                            id="project-description"
+                            className="input"
+                            placeholder="Describe the project, goals, and how the community can contribute..."
+                            value={newProjectDescription}
+                            onChange={(e) => setNewProjectDescription(e.target.value)}
+                            disabled={creatingProject}
+                            rows={5}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="project-type">Project Type *</label>
+                          <select
+                            id="project-type"
+                            className="input"
+                            value={newProjectType}
+                            onChange={(e) => setNewProjectType(e.target.value as 'idea' | 'project' | 'collaboration')}
+                            disabled={creatingProject}
+                          >
+                            <option value="idea">💡 Idea</option>
+                            <option value="project">🚀 Project</option>
+                            <option value="collaboration">🤝 Collaboration</option>
+                          </select>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            {newProjectType === 'idea' && 'Share ideas and gather feedback'}
+                            {newProjectType === 'project' && 'Active project seeking contributions'}
+                            {newProjectType === 'collaboration' && 'Community collaboration opportunity'}
+                          </p>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={createProject}
+                            className="btn"
+                            disabled={creatingProject || !newProjectTitle.trim()}
+                          >
+                            {creatingProject ? 'Creating...' : 'Create Project'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Edit Project Form */}
+                    {editingProject && (
+                      <div className="create-poll-form" style={{ marginBottom: '24px', border: '2px solid var(--accent)' }}>
+                        <h3 style={{ marginBottom: '16px' }}>Edit Project</h3>
+                        <div className="form-group">
+                          <label htmlFor="edit-project-title">Project Title *</label>
+                          <input
+                            id="edit-project-title"
+                            type="text"
+                            className="input"
+                            value={editProjectTitle}
+                            onChange={(e) => setEditProjectTitle(e.target.value)}
+                            disabled={updatingProject}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-project-description">Description (optional)</label>
+                          <textarea
+                            id="edit-project-description"
+                            className="input"
+                            value={editProjectDescription}
+                            onChange={(e) => setEditProjectDescription(e.target.value)}
+                            disabled={updatingProject}
+                            rows={5}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-project-type">Project Type *</label>
+                          <select
+                            id="edit-project-type"
+                            className="input"
+                            value={editProjectType}
+                            onChange={(e) => setEditProjectType(e.target.value as 'idea' | 'project' | 'collaboration')}
+                            disabled={updatingProject}
+                          >
+                            <option value="idea">💡 Idea</option>
+                            <option value="project">🚀 Project</option>
+                            <option value="collaboration">🤝 Collaboration</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={saveProjectEdit}
+                            className="btn"
+                            disabled={updatingProject || !editProjectTitle.trim()}
+                          >
+                            {updatingProject ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button
+                            onClick={cancelEditProject}
+                            className="btn btn-secondary"
+                            disabled={updatingProject}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryVentLink && collaborativeProjects.length > 0 ? (
+                      <div className="polls-list">
+                        {collaborativeProjects.map((project) => {
+                          const contributions = projectContributions[project.id] || []
+                          const isSelected = selectedProject === project.id
+
+                          return (
+                            <div
+                              key={project.id}
+                              className={`poll-card ${!project.is_active ? 'inactive' : ''}`}
+                              style={{
+                                borderLeft: project.is_active
+                                  ? '4px solid var(--accent)'
+                                  : '4px solid var(--border)'
+                              }}
+                            >
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                    <h3>
+                                      {project.project_type === 'idea' ? '💡' :
+                                       project.project_type === 'project' ? '🚀' :
+                                       '🤝'} {project.title}
+                                    </h3>
+                                    <span
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: project.is_active
+                                          ? 'rgba(59, 130, 246, 0.12)'
+                                          : 'rgba(107, 114, 128, 0.1)',
+                                        color: project.is_active
+                                          ? 'var(--accent)'
+                                          : 'var(--text-secondary)'
+                                      }}
+                                    >
+                                      {project.is_active ? '🟢 Active' : '⚪ Inactive'}
+                                    </span>
+                                    <span
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: 'rgba(59,130,246,0.12)',
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    >
+                                      {project.project_type === 'idea' ? '💡 Idea' :
+                                       project.project_type === 'project' ? '🚀 Project' :
+                                       '🤝 Collaboration'}
+                                    </span>
+                                    <span
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: 'rgba(16, 185, 129, 0.12)',
+                                        color: 'var(--success)'
+                                      }}
+                                    >
+                                      💬 {contributions.length} {contributions.length === 1 ? 'contribution' : 'contributions'}
+                                    </span>
+                                  </div>
+                                  {project.description && (
+                                    <p style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '14px', whiteSpace: 'pre-wrap' }}>
+                                      {project.description}
+                                    </p>
+                                  )}
+                                  <p style={{ marginTop: '12px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    Created: {new Date(project.created_at).toLocaleDateString()}
+                                  </p>
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    className="btn btn-small btn-secondary"
+                                    onClick={() => {
+                                      if (isSelected) {
+                                        setSelectedProject(null)
+                                      } else {
+                                        setSelectedProject(project.id)
+                                        if (project.is_active) {
+                                          fetchContributionsForProject(project.id)
+                                        }
+                                      }
+                                    }}
+                                    disabled={editingProject !== null || deletingProject !== null}
+                                    title={isSelected ? 'Hide Contributions' : 'View Contributions'}
+                                  >
+                                    {isSelected ? '👁️' : '💬'}
+                                  </button>
+                                  <button
+                                    className="btn btn-small btn-secondary"
+                                    onClick={() => startEditProject(project)}
+                                    disabled={editingProject !== null || deletingProject !== null}
+                                    title="Edit Project"
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    className={`btn btn-small ${project.is_active ? 'btn-secondary' : ''}`}
+                                    onClick={() => toggleProjectActive(project.id, project.is_active)}
+                                    disabled={editingProject !== null || deletingProject !== null}
+                                    title={project.is_active ? 'Deactivate' : 'Activate'}
+                                  >
+                                    {project.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  <button
+                                    className="btn btn-small btn-danger"
+                                    onClick={() => deleteProject(project.id)}
+                                    disabled={deletingProject === project.id || editingProject !== null}
+                                    title="Delete Project"
+                                  >
+                                    {deletingProject === project.id ? '...' : '🗑️'}
+                                  </button>
+                                </div>
+                              </div>
+                              {isSelected && project.is_active && (
+                                <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border)' }}>
+                                  <h4 style={{ marginBottom: '16px', fontSize: '16px', fontWeight: 600 }}>Contributions</h4>
+                                  {contributions.length > 0 ? (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                                      {contributions.map((contribution) => (
+                                        <div
+                                          key={contribution.id}
+                                          style={{
+                                            padding: '12px',
+                                            background: 'var(--bg-secondary)',
+                                            borderRadius: '8px',
+                                            border: '1px solid var(--border)'
+                                          }}
+                                        >
+                                          <p style={{ fontSize: '14px', lineHeight: '1.6', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
+                                            {contribution.contribution_text}
+                                          </p>
+                                          <p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                            {new Date(contribution.created_at).toLocaleString()}
+                                          </p>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  ) : (
+                                    <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-secondary)' }}>
+                                      <p>No contributions yet</p>
+                                      <p style={{ fontSize: '12px', marginTop: '4px' }}>Community members can contribute to this project on your public page</p>
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🤝</div>
                         <p>No projects yet</p>
                         <p className="empty-hint">Start community-driven projects and collaborations</p>
+                        <button className="btn" onClick={() => setShowCreateProject(true)}>Create Project</button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
               </div>
