@@ -2818,7 +2818,8 @@
 
 .poll-stats {
   display: flex;
-  gap: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
   margin-bottom: 16px;
   font-size: 14px;
   color: var(--text-secondary);
@@ -2828,6 +2829,8 @@
   display: flex;
   align-items: center;
   gap: 4px;
+  white-space: nowrap;
+  flex-shrink: 0;
 }
 
 .poll-results {

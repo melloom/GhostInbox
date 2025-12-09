@@ -117,6 +117,21 @@ export default function Dashboard() {
   const [selectedRaffle, setSelectedRaffle] = useState<Raffle | null>(null)
   const [drawingRaffle, setDrawingRaffle] = useState<string | null>(null)
   const [communityVotes, setCommunityVotes] = useState<CommunityVoteWithOptions[]>([])
+  const [showCreateVote, setShowCreateVote] = useState(false)
+  const [newVoteTitle, setNewVoteTitle] = useState('')
+  const [newVoteDescription, setNewVoteDescription] = useState('')
+  const [newVoteOptions, setNewVoteOptions] = useState<string[]>(['', ''])
+  const [newVoteEndsAt, setNewVoteEndsAt] = useState('')
+  const [creatingVote, setCreatingVote] = useState(false)
+  const [selectedVote, setSelectedVote] = useState<CommunityVoteWithOptions | null>(null)
+  const [editingVote, setEditingVote] = useState<CommunityVoteWithOptions | null>(null)
+  const [editVoteTitle, setEditVoteTitle] = useState('')
+  const [editVoteDescription, setEditVoteDescription] = useState('')
+  const [editVoteOptions, setEditVoteOptions] = useState<Array<{ id?: string; text: string }>>([])
+  const [editVoteEndsAt, setEditVoteEndsAt] = useState('')
+  const [updatingVote, setUpdatingVote] = useState(false)
+  const [deletingVote, setDeletingVote] = useState<string | null>(null)
+  const [voteView, setVoteView] = useState<'all' | 'active' | 'archived'>('all')
   const [feedbackForms, setFeedbackForms] = useState<FeedbackForm[]>([])
   const [highlights, setHighlights] = useState<CommunityHighlight[]>([])
   const [communityGoals, setCommunityGoals] = useState<CommunityGoal[]>([])
@@ -286,6 +301,125 @@ export default function Dashboard() {
       )
       .subscribe()
 
+    // Subscribe to community vote changes for each vent link
+    const voteChannels = linkIds.map(linkId => {
+      return supabase
+        .channel(`community_votes_${linkId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'community_votes',
+            filter: `vent_link_id=eq.${linkId}`
+          },
+          async (payload) => {
+            try {
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                // Fetch full vote data with options and responses
+                const vote = payload.new as any
+                const { data: optionsData, error: optionsError } = await supabase
+                  .from('vote_options')
+                  .select('*')
+                  .eq('vote_id', vote.id)
+                  .order('display_order', { ascending: true })
+
+                if (optionsError) {
+                  console.error('Error fetching vote options:', optionsError)
+                  return
+                }
+
+                const { data: responsesData, error: responsesError } = await supabase
+                  .from('vote_responses')
+                  .select('option_id')
+                  .eq('vote_id', vote.id)
+
+                if (responsesError) {
+                  console.error('Error fetching vote responses:', responsesError)
+                  return
+                }
+
+                const voteCounts: { [key: string]: number } = {}
+                responsesData?.forEach((response) => {
+                  voteCounts[response.option_id] = (voteCounts[response.option_id] || 0) + 1
+                })
+
+                const voteWithData = {
+                  ...vote,
+                  options: optionsData || [],
+                  vote_counts: voteCounts,
+                  total_votes: responsesData?.length || 0,
+                } as CommunityVoteWithOptions
+
+                if (payload.eventType === 'INSERT') {
+                  setCommunityVotes((prev) => [voteWithData, ...prev])
+                } else {
+                  setCommunityVotes((prev) =>
+                    prev.map((v) => (v.id === vote.id ? voteWithData : v))
+                  )
+                }
+              } else if (payload.eventType === 'DELETE') {
+                setCommunityVotes((prev) => prev.filter((v) => v.id !== payload.old.id))
+              }
+            } catch (err) {
+              console.error('Error in community vote subscription callback:', err)
+            }
+          }
+        )
+        .subscribe()
+    })
+
+    // Subscribe to vote responses for real-time vote count updates
+    const voteResponsesChannel = supabase
+      .channel('vote_responses_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'vote_responses'
+        },
+        async (payload) => {
+          try {
+            const response = payload.new as any
+            // Fetch updated vote counts for this vote
+            const { data: responsesData, error: responsesError } = await supabase
+              .from('vote_responses')
+              .select('option_id')
+              .eq('vote_id', response.vote_id)
+
+            if (responsesError) {
+              console.error('Error fetching vote response counts:', responsesError)
+              return
+            }
+
+            if (responsesData) {
+              const voteCounts: { [key: string]: number } = {}
+              responsesData.forEach((r) => {
+                voteCounts[r.option_id] = (voteCounts[r.option_id] || 0) + 1
+              })
+
+              // Update the vote's response counts
+              setCommunityVotes((prev) =>
+                prev.map((vote) => {
+                  if (vote.id === response.vote_id) {
+                    return {
+                      ...vote,
+                      vote_counts: voteCounts,
+                      total_votes: responsesData.length,
+                    }
+                  }
+                  return vote
+                })
+              )
+            }
+          } catch (err) {
+            console.error('Error in vote response subscription callback:', err)
+          }
+        }
+      )
+      .subscribe()
+
     // Cleanup subscriptions on unmount
     return () => {
       messageChannels.forEach(channel => {
@@ -295,6 +429,10 @@ export default function Dashboard() {
         channel.unsubscribe()
       })
       votesChannel.unsubscribe()
+      voteChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      voteResponsesChannel.unsubscribe()
     }
 
     // Subscribe to challenge changes for each vent link
@@ -822,6 +960,76 @@ export default function Dashboard() {
           }
           setRaffleEntries(entriesByRaffle)
         }
+
+        // Fetch Community Votes
+        try {
+          const { data: votesData, error: votesError } = await supabase
+            .from('community_votes')
+            .select('*')
+            .in('vent_link_id', linkIds)
+            .order('created_at', { ascending: false })
+
+          if (votesError) {
+            // Suppress 403 errors (likely RLS policy blocking)
+            if (votesError.code !== 'PGRST116' && votesError.code !== '42501') {
+              console.error('Error fetching community votes:', votesError)
+            }
+          } else if (votesData) {
+            // Fetch options and responses for each vote
+            const votesWithData = await Promise.all(
+              votesData.map(async (vote) => {
+                try {
+                  // Fetch options
+                  const { data: optionsData, error: optionsError } = await supabase
+                    .from('vote_options')
+                    .select('*')
+                    .eq('vote_id', vote.id)
+                    .order('display_order', { ascending: true })
+
+                  if (optionsError && optionsError.code !== 'PGRST116' && optionsError.code !== '42501') {
+                    console.error('Error fetching vote options:', optionsError)
+                  }
+
+                  // Fetch responses
+                  const { data: responsesData, error: responsesError } = await supabase
+                    .from('vote_responses')
+                    .select('option_id')
+                    .eq('vote_id', vote.id)
+
+                  if (responsesError && responsesError.code !== 'PGRST116' && responsesError.code !== '42501') {
+                    console.error('Error fetching vote responses:', responsesError)
+                  }
+
+                  const voteCounts: { [key: string]: number } = {}
+                  responsesData?.forEach((response) => {
+                    voteCounts[response.option_id] = (voteCounts[response.option_id] || 0) + 1
+                  })
+
+                  return {
+                    ...vote,
+                    options: optionsData || [],
+                    vote_counts: voteCounts,
+                    total_votes: responsesData?.length || 0,
+                  } as CommunityVoteWithOptions
+                } catch (err) {
+                  console.error('Error processing vote:', err)
+                  return {
+                    ...vote,
+                    options: [],
+                    vote_counts: {},
+                    total_votes: 0,
+                  } as CommunityVoteWithOptions
+                }
+              })
+            )
+            setCommunityVotes(votesWithData)
+          }
+        } catch (err) {
+          // Suppress expected errors (RLS policies, missing tables, etc.)
+          if (import.meta.env.DEV) {
+            console.error('Error fetching community votes:', err)
+          }
+        }
       }
 
       // Fetch message folders
@@ -1261,6 +1469,252 @@ export default function Dashboard() {
     a.download = `poll-results-${poll.id.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  // Community Vote Functions
+  async function createVote() {
+    if (!primaryVentLink) {
+      alert('Please create a vent link first')
+      return
+    }
+
+    if (!newVoteTitle.trim()) {
+      alert('Please enter a vote title')
+      return
+    }
+
+    const validOptions = newVoteOptions.filter(opt => opt.trim())
+    if (validOptions.length < 2) {
+      alert('Please add at least 2 vote options')
+      return
+    }
+
+    setCreatingVote(true)
+    try {
+      const primaryVentLink = selectedVentLinkId ? ventLinks.find(l => l.id === selectedVentLinkId) || ventLinks[0] : ventLinks[0]
+      if (!primaryVentLink) return
+
+      // Create vote
+      const { data: newVote, error: voteError } = await supabase
+        .from('community_votes')
+        .insert({
+          vent_link_id: primaryVentLink.id,
+          title: newVoteTitle.trim(),
+          description: newVoteDescription.trim() || null,
+          is_active: true,
+          ends_at: newVoteEndsAt ? new Date(newVoteEndsAt).toISOString() : null,
+        })
+        .select()
+        .single()
+
+      if (voteError) throw voteError
+
+      // Create vote options
+      const optionsToInsert = validOptions.map((opt, index) => ({
+        vote_id: newVote.id,
+        option_text: opt.trim(),
+        display_order: index,
+      }))
+
+      const { error: optionsError } = await supabase
+        .from('vote_options')
+        .insert(optionsToInsert)
+
+      if (optionsError) throw optionsError
+
+      setNewVoteTitle('')
+      setNewVoteDescription('')
+      setNewVoteOptions(['', ''])
+      setNewVoteEndsAt('')
+      setShowCreateVote(false)
+      await fetchData()
+    } catch (err: any) {
+      console.error('Error creating vote:', err)
+      alert(err.message || 'Failed to create vote')
+    } finally {
+      setCreatingVote(false)
+    }
+  }
+
+  async function toggleVoteActive(voteId: string, isActive: boolean) {
+    await supabase
+      .from('community_votes')
+      .update({ is_active: isActive })
+      .eq('id', voteId)
+    await fetchData()
+  }
+
+  async function deleteVote(voteId: string) {
+    if (!confirm('Are you sure you want to delete this vote? This cannot be undone.')) return
+
+    setDeletingVote(voteId)
+    try {
+      await supabase
+        .from('community_votes')
+        .delete()
+        .eq('id', voteId)
+      setSelectedVote(null)
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete vote')
+    } finally {
+      setDeletingVote(null)
+    }
+  }
+
+  function startEditingVote(vote: CommunityVoteWithOptions) {
+    setEditingVote(vote)
+    setEditVoteTitle(vote.title)
+    setEditVoteDescription(vote.description || '')
+    setEditVoteOptions(vote.options.map(opt => ({ id: opt.id, text: opt.option_text })))
+    setEditVoteEndsAt(vote.ends_at ? new Date(vote.ends_at).toISOString().slice(0, 16) : '')
+    setShowCreateVote(false)
+    setSelectedVote(null)
+  }
+
+  function cancelEditVote() {
+    setEditingVote(null)
+    setEditVoteTitle('')
+    setEditVoteDescription('')
+    setEditVoteOptions([])
+    setEditVoteEndsAt('')
+  }
+
+  function updateEditVoteOption(index: number, value: string) {
+    const updated = [...editVoteOptions]
+    updated[index].text = value
+    setEditVoteOptions(updated)
+  }
+
+  function addEditVoteOption() {
+    setEditVoteOptions([...editVoteOptions, { text: '' }])
+  }
+
+  function removeEditVoteOption(index: number) {
+    if (editVoteOptions.length > 2) {
+      setEditVoteOptions(editVoteOptions.filter((_, i) => i !== index))
+    }
+  }
+
+  async function saveVoteEdit() {
+    if (!editingVote || !editVoteTitle.trim() || editVoteOptions.filter(opt => opt.text.trim()).length < 2) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    setUpdatingVote(true)
+    try {
+      // Update vote
+      const { error: voteError } = await supabase
+        .from('community_votes')
+        .update({
+          title: editVoteTitle.trim(),
+          description: editVoteDescription.trim() || null,
+          ends_at: editVoteEndsAt ? new Date(editVoteEndsAt).toISOString() : null,
+        })
+        .eq('id', editingVote.id)
+
+      if (voteError) throw voteError
+
+      // Update options
+      const validOptions = editVoteOptions.filter(opt => opt.text.trim())
+      const existingOptions = editVoteOptions.filter(opt => opt.id)
+      const newOptions = editVoteOptions.filter(opt => !opt.id)
+
+      // Delete removed options
+      const optionsToDelete = editingVote.options.filter(existing => 
+        !existingOptions.find(edit => edit.id === existing.id)
+      )
+      if (optionsToDelete.length > 0) {
+        await supabase
+          .from('vote_options')
+          .delete()
+          .in('id', optionsToDelete.map(opt => opt.id))
+      }
+
+      // Update existing options
+      for (const option of existingOptions) {
+        await supabase
+          .from('vote_options')
+          .update({
+            option_text: option.text.trim(),
+            display_order: existingOptions.indexOf(option),
+          })
+          .eq('id', option.id)
+      }
+
+      // Insert new options
+      if (newOptions.length > 0) {
+        const maxOrder = Math.max(...editingVote.options.map(opt => opt.display_order), -1)
+        const optionsToInsert = newOptions.map((opt, index) => ({
+          vote_id: editingVote.id,
+          option_text: opt.text.trim(),
+          display_order: maxOrder + index + 1,
+        }))
+        await supabase
+          .from('vote_options')
+          .insert(optionsToInsert)
+      }
+
+      await fetchData()
+      cancelEditVote()
+    } catch (err: any) {
+      alert(err.message || 'Failed to update vote')
+    } finally {
+      setUpdatingVote(false)
+    }
+  }
+
+  function addVoteOption() {
+    setNewVoteOptions([...newVoteOptions, ''])
+  }
+
+  function removeVoteOption(index: number) {
+    if (newVoteOptions.length > 2) {
+      setNewVoteOptions(newVoteOptions.filter((_, i) => i !== index))
+    }
+  }
+
+  function updateVoteOption(index: number, value: string) {
+    const updated = [...newVoteOptions]
+    updated[index] = value
+    setNewVoteOptions(updated)
+  }
+
+  function exportVoteResults(vote: CommunityVoteWithOptions) {
+    const results = vote.options.map(option => {
+      const voteCount = vote.vote_counts?.[option.id] || 0
+      const percentage = vote.total_votes && vote.total_votes > 0
+        ? Math.round((voteCount / vote.total_votes) * 100)
+        : 0
+      return {
+        Option: option.option_text,
+        Votes: voteCount,
+        Percentage: `${percentage}%`,
+      }
+    })
+
+    const csv = [
+      ['Vote Title', vote.title],
+      ['Total Votes', vote.total_votes || 0],
+      [''],
+      ['Option', 'Votes', 'Percentage'],
+      ...results.map(r => [r.Option, r.Votes, r.Percentage])
+    ].map(row => row.join(',')).join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `vote-results-${vote.id.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  function getVoteStatus(vote: CommunityVoteWithOptions) {
+    if (!vote.is_active) return 'inactive'
+    if (vote.ends_at && new Date(vote.ends_at) < new Date()) return 'expired'
+    return 'active'
   }
 
   async function createQASession() {
@@ -4385,7 +4839,7 @@ export default function Dashboard() {
                             min="1"
                           />
                         </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '16px' }}>
                           <div className="form-group">
                             <label>Start Date (optional)</label>
                             <input
@@ -4508,7 +4962,7 @@ export default function Dashboard() {
                                   </button>
                                 </div>
                               </div>
-                              <div className="poll-stats">
+                              <div className="poll-stats" style={{ flexWrap: 'wrap', gap: '8px' }}>
                                 <span className="poll-stat">📝 {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}</span>
                                 {winners.length > 0 && (
                                   <span className="poll-stat" style={{ color: 'var(--accent)' }}>
@@ -4517,18 +4971,18 @@ export default function Dashboard() {
                                 )}
                                 <span className="poll-stat">🎯 {raffle.winner_count} winner{raffle.winner_count > 1 ? 's' : ''} to draw</span>
                                 {raffle.starts_at && (
-                                  <span className="poll-stat">
-                                    📅 Starts {new Date(raffle.starts_at).toLocaleDateString()}
+                                  <span className="poll-stat" style={{ whiteSpace: 'nowrap' }}>
+                                    📅 {new Date(raffle.starts_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </span>
                                 )}
                                 {raffle.ends_at && (
-                                  <span className="poll-stat">
-                                    ⏰ Ends {new Date(raffle.ends_at).toLocaleDateString()}
+                                  <span className="poll-stat" style={{ whiteSpace: 'nowrap' }}>
+                                    ⏰ {new Date(raffle.ends_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </span>
                                 )}
                                 {raffle.draw_at && (
-                                  <span className="poll-stat">
-                                    🎲 Draws {new Date(raffle.draw_at).toLocaleDateString()}
+                                  <span className="poll-stat" style={{ whiteSpace: 'nowrap' }}>
+                                    🎲 {new Date(raffle.draw_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                                   </span>
                                 )}
                               </div>
@@ -4602,24 +5056,336 @@ export default function Dashboard() {
                 {hubView === 'voting' && (
                   <div className="hub-voting-view">
                     <div className="hub-section-header">
-                      <h3>Community Voting</h3>
-                      {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Vote</button>
+                      <div className="hub-section-title">
+                        <h3>Community Voting</h3>
+                        {communityVotes.length > 0 && (
+                          <div className="filter-buttons">
+                            <button
+                              className={`filter-btn ${voteView === 'all' ? 'active' : ''}`}
+                              onClick={() => setVoteView('all')}
+                            >
+                              All
+                            </button>
+                            <button
+                              className={`filter-btn ${voteView === 'active' ? 'active' : ''}`}
+                              onClick={() => setVoteView('active')}
+                            >
+                              Active
+                            </button>
+                            <button
+                              className={`filter-btn ${voteView === 'archived' ? 'active' : ''}`}
+                              onClick={() => setVoteView('archived')}
+                            >
+                              Archived
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {primaryVentLink ? (
+                        <button
+                          onClick={() => {
+                            if (editingVote) cancelEditVote()
+                            setShowCreateVote(!showCreateVote)
+                          }}
+                          className="btn btn-secondary"
+                        >
+                          {showCreateVote ? 'Cancel' : '+ New Vote'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn btn-secondary"
+                        >
+                          Create Link First
+                        </button>
                       )}
-          </div>
+                    </div>
+
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🗳️</div>
-                        <p>Create a vent link first</p>
-                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                        <p>Create a vent link first to create votes</p>
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn"
+                        >
+                          Create Vent Link
+                        </button>
                       </div>
-                    ) : (
-                      <div className="empty-state-compact">
-                        <div className="empty-icon">🗳️</div>
-                        <p>No votes yet</p>
-                        <p className="empty-hint">Let your community vote on decisions and ideas</p>
+                    ) : showCreateVote && !editingVote && (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label htmlFor="vote-title">Vote Title *</label>
+                          <input
+                            id="vote-title"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Which feature should we build next?"
+                            value={newVoteTitle}
+                            onChange={(e) => setNewVoteTitle(e.target.value)}
+                            disabled={creatingVote}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="vote-description">Description (optional)</label>
+                          <textarea
+                            id="vote-description"
+                            className="input"
+                            placeholder="Add more context about this vote..."
+                            value={newVoteDescription}
+                            onChange={(e) => setNewVoteDescription(e.target.value)}
+                            disabled={creatingVote}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Vote Options *</label>
+                          {newVoteOptions.map((option, index) => (
+                            <div key={index} className="poll-option-input">
+                              <input
+                                type="text"
+                                className="input"
+                                placeholder={`Option ${index + 1}`}
+                                value={option}
+                                onChange={(e) => updateVoteOption(index, e.target.value)}
+                                disabled={creatingVote}
+                              />
+                              {newVoteOptions.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeVoteOption(index)}
+                                  className="btn btn-danger btn-small"
+                                  disabled={creatingVote}
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addVoteOption}
+                            className="btn btn-secondary btn-small"
+                            disabled={creatingVote}
+                          >
+                            + Add Option
+                          </button>
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="vote-ends">End Date (optional)</label>
+                          <input
+                            id="vote-ends"
+                            type="datetime-local"
+                            className="input"
+                            value={newVoteEndsAt}
+                            onChange={(e) => setNewVoteEndsAt(e.target.value)}
+                            disabled={creatingVote}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={createVote}
+                            className="btn"
+                            disabled={creatingVote || !newVoteTitle.trim() || newVoteOptions.filter(opt => opt.trim()).length < 2}
+                          >
+                            {creatingVote ? 'Creating...' : 'Create Vote'}
+                          </button>
+                        </div>
                       </div>
                     )}
+
+                    {/* Edit Vote Form */}
+                    {editingVote && (
+                      <div className="create-poll-form" style={{ marginBottom: '24px', border: '2px solid var(--accent)' }}>
+                        <h3 style={{ marginBottom: '16px' }}>Edit Vote</h3>
+                        <div className="form-group">
+                          <label htmlFor="edit-vote-title">Vote Title *</label>
+                          <input
+                            id="edit-vote-title"
+                            type="text"
+                            className="input"
+                            value={editVoteTitle}
+                            onChange={(e) => setEditVoteTitle(e.target.value)}
+                            disabled={updatingVote}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-vote-description">Description (optional)</label>
+                          <textarea
+                            id="edit-vote-description"
+                            className="input"
+                            value={editVoteDescription}
+                            onChange={(e) => setEditVoteDescription(e.target.value)}
+                            disabled={updatingVote}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Vote Options *</label>
+                          {editVoteOptions.map((option, index) => (
+                            <div key={index} className="poll-option-input">
+                              <input
+                                type="text"
+                                className="input"
+                                placeholder={`Option ${index + 1}`}
+                                value={option.text}
+                                onChange={(e) => updateEditVoteOption(index, e.target.value)}
+                                disabled={updatingVote}
+                              />
+                              {editVoteOptions.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeEditVoteOption(index)}
+                                  className="btn btn-danger btn-small"
+                                  disabled={updatingVote}
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addEditVoteOption}
+                            className="btn btn-secondary btn-small"
+                            disabled={updatingVote}
+                          >
+                            + Add Option
+                          </button>
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-vote-ends">End Date (optional)</label>
+                          <input
+                            id="edit-vote-ends"
+                            type="datetime-local"
+                            className="input"
+                            value={editVoteEndsAt}
+                            onChange={(e) => setEditVoteEndsAt(e.target.value)}
+                            disabled={updatingVote}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={saveVoteEdit}
+                            className="btn"
+                            disabled={updatingVote || !editVoteTitle.trim() || editVoteOptions.filter(opt => opt.text.trim()).length < 2}
+                          >
+                            {updatingVote ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button
+                            onClick={cancelEditVote}
+                            className="btn btn-secondary"
+                            disabled={updatingVote}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryVentLink && (() => {
+                      const activeVotes = communityVotes.filter((v: CommunityVoteWithOptions) => getVoteStatus(v) === 'active')
+                      const archivedVotes = communityVotes.filter((v: CommunityVoteWithOptions) => getVoteStatus(v) !== 'active')
+                      const displayedVotes = voteView === 'active' ? activeVotes : voteView === 'archived' ? archivedVotes : communityVotes
+                      
+                      return displayedVotes.length > 0 ? (
+                        <div className="polls-list">
+                          {displayedVotes.map((vote) => (
+                            <div key={vote.id} className={`poll-card ${!vote.is_active ? 'inactive' : ''}`}>
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <h3>{vote.title}</h3>
+                                  {vote.description && (
+                                    <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                      {vote.description}
+                                    </p>
+                                  )}
+                                  <div style={{ marginTop: '12px', display: 'flex', gap: '12px', flexWrap: 'wrap', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                                    <span>Total Votes: <strong>{vote.total_votes || 0}</strong></span>
+                                    {vote.ends_at && (
+                                      <span>Ends: {new Date(vote.ends_at).toLocaleDateString()}</span>
+                                    )}
+                                    <span className={`status-badge ${getVoteStatus(vote)}`}>
+                                      {getVoteStatus(vote) === 'active' ? 'Active' : getVoteStatus(vote) === 'expired' ? 'Expired' : 'Inactive'}
+                                    </span>
+                                  </div>
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    onClick={() => startEditingVote(vote)}
+                                    className="btn btn-small btn-secondary"
+                                    title="Edit Vote"
+                                    disabled={editingVote !== null}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    onClick={() => exportVoteResults(vote)}
+                                    className="btn btn-small btn-secondary"
+                                    title="Export Results"
+                                  >
+                                    📊 Export
+                                  </button>
+                                  <button
+                                    onClick={() => toggleVoteActive(vote.id, !vote.is_active)}
+                                    className={`btn btn-small ${vote.is_active ? 'btn-secondary' : ''}`}
+                                    title={vote.is_active ? 'Deactivate' : 'Activate'}
+                                  >
+                                    {vote.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteVote(vote.id)}
+                                    className="btn btn-small btn-danger"
+                                    title="Delete Vote"
+                                    disabled={deletingVote === vote.id}
+                                  >
+                                    {deletingVote === vote.id ? '...' : '🗑️'}
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="poll-results" style={{ marginTop: '16px' }}>
+                                {vote.options.map((option) => {
+                                  const voteCount = vote.vote_counts?.[option.id] || 0
+                                  const percentage = vote.total_votes && vote.total_votes > 0
+                                    ? Math.round((voteCount / vote.total_votes) * 100)
+                                    : 0
+                                  return (
+                                    <div key={option.id} className="poll-option-result" style={{ marginBottom: '12px' }}>
+                                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '4px' }}>
+                                        <span>{option.option_text}</span>
+                                        <span style={{ fontWeight: 'bold' }}>{voteCount} ({percentage}%)</span>
+                                      </div>
+                                      <div className="progress-bar" style={{ width: '100%', height: '8px', background: 'var(--bg-secondary)', borderRadius: '4px', overflow: 'hidden' }}>
+                                        <div
+                                          style={{
+                                            width: `${percentage}%`,
+                                            height: '100%',
+                                            background: 'var(--accent)',
+                                            transition: 'width 0.3s ease',
+                                          }}
+                                        />
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      ) : (
+                        <div className="empty-state-compact">
+                          <div className="empty-icon">🗳️</div>
+                          <p>No votes yet</p>
+                          <p className="empty-hint">Let your community vote on decisions and ideas</p>
+                          <button
+                            onClick={() => setShowCreateVote(true)}
+                            className="btn"
+                          >
+                            Create Your First Vote
+                          </button>
+                        </div>
+                      )
+                    })()}
                   </div>
                 )}
 

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { supabase, VentLink, PollWithOptions, QASession, QAQuestion, Challenge, ChallengeSubmission, Raffle, RaffleEntry } from '../lib/supabase'
+import { supabase, VentLink, PollWithOptions, QASession, QAQuestion, Challenge, ChallengeSubmission, Raffle, RaffleEntry, CommunityVoteWithOptions } from '../lib/supabase'
 import { validateMessage, prepareMessageForStorage } from '../lib/validation'
 import { sanitizeErrorMessage } from '../lib/errorHandler'
 import './VentPage.css'
@@ -32,7 +32,7 @@ export default function VentPage() {
   const [activePolls, setActivePolls] = useState<PollWithOptions[]>([])
   const [votedPollId, setVotedPollId] = useState<string | null>(null)
   const [voting, setVoting] = useState(false)
-  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa' | 'challenges' | 'raffles'>('message')
+  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa' | 'challenges' | 'raffles' | 'voting'>('message')
   const [activeQASessions, setActiveQASessions] = useState<QASession[]>([])
   const [qaQuestions, setQaQuestions] = useState<{ [sessionId: string]: QAQuestion[] }>({})
   const [submittingQuestion, setSubmittingQuestion] = useState<string | null>(null)
@@ -45,6 +45,9 @@ export default function VentPage() {
   const [raffleEntries, setRaffleEntries] = useState<{ [raffleId: string]: RaffleEntry[] }>({})
   const [enteringRaffle, setEnteringRaffle] = useState<string | null>(null)
   const [entryNames, setEntryNames] = useState<{ [raffleId: string]: string }>({})
+  const [activeVotes, setActiveVotes] = useState<CommunityVoteWithOptions[]>([])
+  const [votedVoteId, setVotedVoteId] = useState<string | null>(null)
+  const [votingOnVote, setVotingOnVote] = useState(false)
 
   useEffect(() => {
     if (!slug) return
