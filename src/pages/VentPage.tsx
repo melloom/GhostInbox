@@ -329,16 +329,50 @@ export default function VentPage() {
   return (
     <div className="vent-page">
       <div className="vent-container">
-        <div className="creator-header">
-          <div className="avatar-circle">
-            {displayTitle.charAt(0).toUpperCase()}
+        <div className="hero-card">
+          <div className="creator-header">
+            <div className="avatar-circle">
+              {displayTitle.charAt(0).toUpperCase()}
+            </div>
+            <div className="hero-text">
+              <h1>{displayTitle}</h1>
+              <p className="subtitle">Drop a note. You stay anonymous—always.</p>
+            </div>
           </div>
-          <h1>{displayTitle}</h1>
+
+          <div className="trust-grid">
+            <div className="trust-pill">
+              <span className="pill-icon">🕶️</span>
+              Anonymous & private
+            </div>
+            <div className="trust-pill">
+              <span className="pill-icon">🛡️</span>
+              Protected & moderated
+            </div>
+            <div className="trust-pill">
+              <span className="pill-icon">⚡</span>
+              Real-time updates
+            </div>
+          </div>
         </div>
 
-        <p className="subtitle">
-          Drop a message. You'll stay anonymous.
-        </p>
+        <div className="info-grid">
+          <div className="info-card">
+            <div className="info-icon">💭</div>
+            <h3>Share freely</h3>
+            <p>Vent, celebrate, ask for advice, or share an idea. No accounts. No pressure.</p>
+          </div>
+          <div className="info-card">
+            <div className="info-icon">🧠</div>
+            <h3>Be kind</h3>
+            <p>Keep it respectful. Harmful or abusive messages may be filtered or removed.</p>
+          </div>
+          <div className="info-card">
+            <div className="info-icon">🔔</div>
+            <h3>Stay updated</h3>
+            <p>Poll votes and responses update live—no page refresh needed.</p>
+          </div>
+        </div>
 
         {/* Active Poll Section */}
         {activePolls.map((poll) => (
@@ -387,49 +421,80 @@ export default function VentPage() {
           </div>
         ))}
 
-        <form onSubmit={handleSubmit} className="vent-form">
-          <textarea
-            className="textarea"
-            value={message}
-            onChange={(e) => setMessage(e.target.value)}
-            placeholder="Say what you need to say..."
-            required
-            disabled={submitting}
-            maxLength={5000}
-          />
-          <div className="char-counter">
-            {message.length} / 5000 characters
+        <div className="form-card">
+          <div className="form-header">
+            <h3>Send a message</h3>
+            <p className="form-hint">Anonymous. No tracking. Just words.</p>
           </div>
 
-          <select
-            className="select"
-            value={mood}
-            onChange={(e) => setMood(e.target.value)}
-            disabled={submitting}
-          >
-            {MOODS.map((m) => (
-              <option key={m.value} value={m.value}>
-                {m.label}
-              </option>
-            ))}
-          </select>
-
-          {status && (
-            <div className={status.includes('wrong') || status.includes('Please') ? 'error-message' : 'success-message'}>
-              {status}
+          <form onSubmit={handleSubmit} className="vent-form">
+            <textarea
+              className="textarea"
+              value={message}
+              onChange={(e) => setMessage(e.target.value)}
+              placeholder="Say what you need to say..."
+              required
+              disabled={submitting}
+              maxLength={5000}
+            />
+            <div className="char-counter">
+              {message.length} / 5000 characters
             </div>
-          )}
 
-          {error && <div className="error-message">{error}</div>}
+            <div className="form-row">
+              <div className="form-col">
+                <label className="field-label">Mood (optional)</label>
+                <select
+                  className="select"
+                  value={mood}
+                  onChange={(e) => setMood(e.target.value)}
+                  disabled={submitting}
+                >
+                  {MOODS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="form-col tips-card">
+                <div className="tips-title">Tips for a helpful message</div>
+                <ul className="tips-list">
+                  <li>Share how you feel or what happened</li>
+                  <li>Add context if you want feedback</li>
+                  <li>Keep it respectful and kind</li>
+                </ul>
+              </div>
+            </div>
 
-          <button
-            type="submit"
-            className="btn btn-primary"
-            disabled={submitting || !message.trim()}
-          >
-            {submitting ? 'Sending...' : 'Send anonymously'}
-          </button>
-        </form>
+            {status && (
+              <div className={status.includes('wrong') || status.includes('Please') ? 'error-message' : 'success-message'}>
+                {status}
+              </div>
+            )}
+
+            {error && <div className="error-message">{error}</div>}
+
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={submitting || !message.trim()}
+            >
+              {submitting ? 'Sending...' : 'Send anonymously'}
+            </button>
+          </form>
+        </div>
+
+        <div className="footer-note">
+          <div className="footer-pill">
+            <span className="pill-icon">🔒</span>
+            Your IP is hashed and rate-limited to keep this space safe.
+          </div>
+          <div className="footer-pill">
+            <span className="pill-icon">📡</span>
+            Polls and responses update live—no refresh needed.
+          </div>
+        </div>
       </div>
     </div>
   )
