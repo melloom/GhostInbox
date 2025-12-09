@@ -157,6 +157,21 @@ export default function Dashboard() {
   const [updatingHighlight, setUpdatingHighlight] = useState<string | null>(null)
   const [deletingHighlight, setDeletingHighlight] = useState<string | null>(null)
   const [communityGoals, setCommunityGoals] = useState<CommunityGoal[]>([])
+  const [showCreateGoal, setShowCreateGoal] = useState(false)
+  const [newGoalTitle, setNewGoalTitle] = useState('')
+  const [newGoalDescription, setNewGoalDescription] = useState('')
+  const [newGoalType, setNewGoalType] = useState<'messages' | 'engagement' | 'polls' | 'custom'>('messages')
+  const [newGoalTargetValue, setNewGoalTargetValue] = useState('100')
+  const [newGoalDeadline, setNewGoalDeadline] = useState('')
+  const [creatingGoal, setCreatingGoal] = useState(false)
+  const [editingGoal, setEditingGoal] = useState<string | null>(null)
+  const [editGoalTitle, setEditGoalTitle] = useState('')
+  const [editGoalDescription, setEditGoalDescription] = useState('')
+  const [editGoalType, setEditGoalType] = useState<'messages' | 'engagement' | 'polls' | 'custom'>('messages')
+  const [editGoalTargetValue, setEditGoalTargetValue] = useState('')
+  const [editGoalDeadline, setEditGoalDeadline] = useState('')
+  const [updatingGoal, setUpdatingGoal] = useState(false)
+  const [deletingGoal, setDeletingGoal] = useState<string | null>(null)
   const [communityEvents, setCommunityEvents] = useState<CommunityEvent[]>([])
   const [collaborativeProjects, setCollaborativeProjects] = useState<CollaborativeProject[]>([])
   const [messageReactions, setMessageReactions] = useState<{ [messageId: string]: MessageReaction[] }>({})
@@ -186,10 +201,14 @@ export default function Dashboard() {
             table: 'vent_messages',
             filter: `vent_link_id=eq.${linkId}`
           },
-          (payload) => {
+          async (payload) => {
             if (payload.eventType === 'INSERT') {
               // New message added
               setMessages((prev) => [payload.new as VentMessage, ...prev])
+              // Update goals that track messages
+              if (ventLinks.length > 0) {
+                await fetchGoals(ventLinks.map(l => l.id))
+              }
             } else if (payload.eventType === 'UPDATE') {
               // Message updated (e.g., marked as read, flagged)
               setMessages((prev) =>
@@ -200,6 +219,10 @@ export default function Dashboard() {
             } else if (payload.eventType === 'DELETE') {
               // Message deleted
               setMessages((prev) => prev.filter((msg) => msg.id !== payload.old.id))
+              // Update goals that track messages
+              if (ventLinks.length > 0) {
+                await fetchGoals(ventLinks.map(l => l.id))
+              }
             }
           }
         )
@@ -265,6 +288,10 @@ export default function Dashboard() {
                 }
               } else if (payload.eventType === 'DELETE') {
                 setPolls((prev) => prev.filter((p) => p.id !== payload.old.id))
+              }
+              // Update goals that track polls
+              if (ventLinks.length > 0) {
+                await fetchGoals(ventLinks.map(l => l.id))
               }
             } catch (err) {
               console.error('Error in poll subscription callback:', err)
@@ -460,12 +487,42 @@ export default function Dashboard() {
             if (reaction && reaction.message_id) {
               // Refresh reactions for this message
               await fetchReactionsForMessage(reaction.message_id)
+              // Update goals that track engagement
+              if (ventLinks.length > 0) {
+                await fetchGoals(ventLinks.map(l => l.id))
+              }
             }
           } catch (err: any) {
             // Suppress expected errors (403, RLS policy blocks, etc.)
             if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
               if (import.meta.env.DEV) {
                 console.error('Error in reactions subscription callback:', err)
+              }
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    // Subscribe to community goals for real-time updates
+    const goalsChannel = supabase
+      .channel('community_goals_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'community_goals'
+        },
+        async () => {
+          try {
+            if (ventLinks.length > 0) {
+              await fetchGoals(ventLinks.map(l => l.id))
+            }
+          } catch (err: any) {
+            if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+              if (import.meta.env.DEV) {
+                console.error('Error in goals subscription callback:', err)
               }
             }
           }
@@ -487,6 +544,7 @@ export default function Dashboard() {
       })
       voteResponsesChannel.unsubscribe()
       reactionsChannel.unsubscribe()
+      goalsChannel.unsubscribe()
     }
 
     // Subscribe to feedback forms for each vent link
@@ -1211,6 +1269,9 @@ export default function Dashboard() {
 
         // Fetch Highlights
         await fetchHighlights(linkIds)
+
+        // Fetch Community Goals
+        await fetchGoals(linkIds)
 
         // Fetch Feedback Forms
         try {
@@ -2652,6 +2713,276 @@ export default function Dashboard() {
     } finally {
       setDeletingHighlight(null)
     }
+  }
+
+  async function fetchGoals(linkIds: string[]) {
+    try {
+      const { data, error } = await supabase
+        .from('community_goals')
+        .select('*')
+        .in('vent_link_id', linkIds)
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        if (error.code !== 'PGRST116' && error.code !== '42501') {
+          if (import.meta.env.DEV) {
+            console.error('Error fetching goals:', error)
+          }
+        }
+        return
+      }
+
+      if (data) {
+        // Auto-calculate current_value based on goal_type
+        const goalsWithProgress = await Promise.all(
+          data.map(async (goal) => {
+            let currentValue = 0
+            const primaryLink = ventLinks.find(link => link.id === goal.vent_link_id)
+
+            if (primaryLink) {
+              switch (goal.goal_type) {
+                case 'messages':
+                  currentValue = messages.filter(m => m.vent_link_id === goal.vent_link_id).length
+                  break
+                case 'polls':
+                  currentValue = polls.filter(p => p.vent_link_id === goal.vent_link_id && p.is_active).length
+                  break
+                case 'engagement':
+                  // Count total reactions for messages in this vent link
+                  const linkMessages = messages.filter(m => m.vent_link_id === goal.vent_link_id)
+                  const linkMessageIds = linkMessages.map(m => m.id)
+                  const linkReactions = Object.values(messageReactions).flat().filter(
+                    r => linkMessageIds.includes(r.message_id)
+                  )
+                  currentValue = linkReactions.length
+                  break
+                case 'custom':
+                  // Custom goals are manually updated
+                  currentValue = goal.current_value || 0
+                  break
+              }
+            }
+
+            // Update goal if current_value changed
+            if (currentValue !== goal.current_value) {
+              try {
+                await supabase
+                  .from('community_goals')
+                  .update({ current_value: currentValue })
+                  .eq('id', goal.id)
+              } catch (err) {
+                // Suppress errors
+              }
+            }
+
+            return {
+              ...goal,
+              current_value: currentValue,
+            }
+          })
+        )
+
+        setCommunityGoals(goalsWithProgress)
+      }
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Error fetching goals:', err)
+      }
+    }
+  }
+
+  async function createGoal() {
+    const primary = primaryVentLink
+    if (!primary) return
+    if (!newGoalTitle.trim()) {
+      alert('Please enter a goal title')
+      return
+    }
+
+    const targetValue = parseInt(newGoalTargetValue) || 0
+    if (targetValue <= 0) {
+      alert('Target value must be greater than 0')
+      return
+    }
+
+    setCreatingGoal(true)
+    try {
+      // Calculate initial current_value
+      let currentValue = 0
+      switch (newGoalType) {
+        case 'messages':
+          currentValue = messages.filter(m => m.vent_link_id === primary.id).length
+          break
+        case 'polls':
+          currentValue = polls.filter(p => p.vent_link_id === primary.id && p.is_active).length
+          break
+        case 'engagement':
+          const linkMessages = messages.filter(m => m.vent_link_id === primary.id)
+          const linkMessageIds = linkMessages.map(m => m.id)
+          const linkReactions = Object.values(messageReactions).flat().filter(
+            r => linkMessageIds.includes(r.message_id)
+          )
+          currentValue = linkReactions.length
+          break
+        case 'custom':
+          currentValue = 0
+          break
+      }
+
+      const { error } = await supabase.from('community_goals').insert({
+        vent_link_id: primary.id,
+        title: newGoalTitle.trim(),
+        description: newGoalDescription.trim() || null,
+        goal_type: newGoalType,
+        target_value: targetValue,
+        current_value: currentValue,
+        is_active: true,
+        deadline: newGoalDeadline ? new Date(newGoalDeadline).toISOString() : null,
+      })
+
+      if (error) {
+        console.error('Error creating goal:', error)
+        alert(error.message || 'Failed to create goal')
+      } else {
+        await fetchGoals([primary.id])
+        setShowCreateGoal(false)
+        setNewGoalTitle('')
+        setNewGoalDescription('')
+        setNewGoalType('messages')
+        setNewGoalTargetValue('100')
+        setNewGoalDeadline('')
+      }
+    } catch (err: any) {
+      console.error('Error creating goal:', err)
+      alert(err.message || 'Failed to create goal')
+    } finally {
+      setCreatingGoal(false)
+    }
+  }
+
+  async function toggleGoalActive(goalId: string, isActive: boolean) {
+    try {
+      const { error } = await supabase
+        .from('community_goals')
+        .update({ is_active: !isActive })
+        .eq('id', goalId)
+
+      if (error) {
+        console.error('Error updating goal:', error)
+      } else {
+        await fetchGoals(ventLinks.map(l => l.id))
+      }
+    } catch (err) {
+      console.error('Error updating goal:', err)
+    }
+  }
+
+  async function startEditGoal(goal: CommunityGoal) {
+    setEditingGoal(goal.id)
+    setEditGoalTitle(goal.title)
+    setEditGoalDescription(goal.description || '')
+    setEditGoalType(goal.goal_type)
+    setEditGoalTargetValue(goal.target_value.toString())
+    setEditGoalDeadline(goal.deadline ? new Date(goal.deadline).toISOString().slice(0, 16) : '')
+  }
+
+  async function cancelEditGoal() {
+    setEditingGoal(null)
+    setEditGoalTitle('')
+    setEditGoalDescription('')
+    setEditGoalType('messages')
+    setEditGoalTargetValue('')
+    setEditGoalDeadline('')
+  }
+
+  async function saveGoalEdit() {
+    if (!editingGoal) return
+
+    const targetValue = parseInt(editGoalTargetValue) || 0
+    if (targetValue <= 0) {
+      alert('Target value must be greater than 0')
+      return
+    }
+
+    setUpdatingGoal(true)
+    try {
+      const { error } = await supabase
+        .from('community_goals')
+        .update({
+          title: editGoalTitle.trim(),
+          description: editGoalDescription.trim() || null,
+          goal_type: editGoalType,
+          target_value: targetValue,
+          deadline: editGoalDeadline ? new Date(editGoalDeadline).toISOString() : null,
+        })
+        .eq('id', editingGoal)
+
+      if (error) {
+        console.error('Error updating goal:', error)
+        alert(error.message || 'Failed to update goal')
+      } else {
+        await fetchGoals(ventLinks.map(l => l.id))
+        cancelEditGoal()
+      }
+    } catch (err: any) {
+      console.error('Error updating goal:', err)
+      alert(err.message || 'Failed to update goal')
+    } finally {
+      setUpdatingGoal(false)
+    }
+  }
+
+  async function updateGoalProgress(goalId: string, newValue: number) {
+    try {
+      const { error } = await supabase
+        .from('community_goals')
+        .update({ current_value: newValue })
+        .eq('id', goalId)
+
+      if (error) {
+        console.error('Error updating goal progress:', error)
+      } else {
+        await fetchGoals(ventLinks.map(l => l.id))
+      }
+    } catch (err) {
+      console.error('Error updating goal progress:', err)
+    }
+  }
+
+  async function deleteGoal(goalId: string) {
+    if (!confirm('Are you sure you want to delete this goal?')) return
+
+    setDeletingGoal(goalId)
+    try {
+      const { error } = await supabase
+        .from('community_goals')
+        .delete()
+        .eq('id', goalId)
+
+      if (error) {
+        console.error('Error deleting goal:', error)
+        alert(error.message || 'Failed to delete goal')
+      } else {
+        await fetchGoals(ventLinks.map(l => l.id))
+      }
+    } catch (err: any) {
+      console.error('Error deleting goal:', err)
+      alert(err.message || 'Failed to delete goal')
+    } finally {
+      setDeletingGoal(null)
+    }
+  }
+
+  function getGoalProgress(goal: CommunityGoal): number {
+    if (goal.target_value === 0) return 0
+    return Math.min(100, Math.round((goal.current_value / goal.target_value) * 100))
+  }
+
+  function getGoalStatus(goal: CommunityGoal): 'active' | 'completed' | 'expired' | 'inactive' {
+    if (!goal.is_active) return 'inactive'
+    if (goal.current_value >= goal.target_value) return 'completed'
+    if (goal.deadline && new Date(goal.deadline) < new Date()) return 'expired'
+    return 'active'
   }
 
   async function fetchReactionsForMessage(messageId: string) {
@@ -6576,25 +6907,360 @@ export default function Dashboard() {
                 {hubView === 'goals' && (
                   <div className="hub-goals-view">
                     <div className="hub-section-header">
-                      <h3>Community Goals</h3>
-                      {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Goal</button>
+                      <div className="hub-section-title">
+                        <h3>Community Goals</h3>
+                        <p style={{ fontSize: '14px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                          Set and track community milestones
+                        </p>
+                      </div>
+                      {primaryVentLink ? (
+                        <button
+                          onClick={() => {
+                            if (editingGoal) cancelEditGoal()
+                            setShowCreateGoal(!showCreateGoal)
+                          }}
+                          className="btn btn-secondary"
+                        >
+                          {showCreateGoal ? 'Cancel' : '+ New Goal'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn btn-secondary"
+                        >
+                          Create Link First
+                        </button>
                       )}
                     </div>
+
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🎯</div>
-                        <p>Create a vent link first</p>
-                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
-                </div>
-              ) : (
+                        <p>Create a vent link first to create goals</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Vent Link</button>
+                      </div>
+                    ) : showCreateGoal && !editingGoal && (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label htmlFor="goal-title">Goal Title *</label>
+                          <input
+                            id="goal-title"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Reach 1000 messages"
+                            value={newGoalTitle}
+                            onChange={(e) => setNewGoalTitle(e.target.value)}
+                            disabled={creatingGoal}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="goal-description">Description (optional)</label>
+                          <textarea
+                            id="goal-description"
+                            className="input"
+                            placeholder="What does this goal mean for your community?"
+                            value={newGoalDescription}
+                            onChange={(e) => setNewGoalDescription(e.target.value)}
+                            disabled={creatingGoal}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="goal-type">Goal Type *</label>
+                          <select
+                            id="goal-type"
+                            className="input"
+                            value={newGoalType}
+                            onChange={(e) => setNewGoalType(e.target.value as 'messages' | 'engagement' | 'polls' | 'custom')}
+                            disabled={creatingGoal}
+                          >
+                            <option value="messages">📨 Total Messages</option>
+                            <option value="engagement">😊 Total Reactions</option>
+                            <option value="polls">📊 Active Polls</option>
+                            <option value="custom">🎯 Custom (Manual)</option>
+                          </select>
+                          <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                            {newGoalType === 'messages' && 'Tracks total number of messages received'}
+                            {newGoalType === 'engagement' && 'Tracks total number of reactions on messages'}
+                            {newGoalType === 'polls' && 'Tracks number of active polls'}
+                            {newGoalType === 'custom' && 'Manually update progress'}
+                          </p>
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="goal-target">Target Value *</label>
+                          <input
+                            id="goal-target"
+                            type="number"
+                            className="input"
+                            placeholder="100"
+                            value={newGoalTargetValue}
+                            onChange={(e) => setNewGoalTargetValue(e.target.value)}
+                            disabled={creatingGoal}
+                            min={1}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="goal-deadline">Deadline (optional)</label>
+                          <input
+                            id="goal-deadline"
+                            type="datetime-local"
+                            className="input"
+                            value={newGoalDeadline}
+                            onChange={(e) => setNewGoalDeadline(e.target.value)}
+                            disabled={creatingGoal}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={createGoal}
+                            className="btn"
+                            disabled={creatingGoal || !newGoalTitle.trim() || !newGoalTargetValue}
+                          >
+                            {creatingGoal ? 'Creating...' : 'Create Goal'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Edit Goal Form */}
+                    {editingGoal && (
+                      <div className="create-poll-form" style={{ marginBottom: '24px', border: '2px solid var(--accent)' }}>
+                        <h3 style={{ marginBottom: '16px' }}>Edit Goal</h3>
+                        <div className="form-group">
+                          <label htmlFor="edit-goal-title">Goal Title *</label>
+                          <input
+                            id="edit-goal-title"
+                            type="text"
+                            className="input"
+                            value={editGoalTitle}
+                            onChange={(e) => setEditGoalTitle(e.target.value)}
+                            disabled={updatingGoal}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-goal-description">Description (optional)</label>
+                          <textarea
+                            id="edit-goal-description"
+                            className="input"
+                            value={editGoalDescription}
+                            onChange={(e) => setEditGoalDescription(e.target.value)}
+                            disabled={updatingGoal}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-goal-type">Goal Type *</label>
+                          <select
+                            id="edit-goal-type"
+                            className="input"
+                            value={editGoalType}
+                            onChange={(e) => setEditGoalType(e.target.value as 'messages' | 'engagement' | 'polls' | 'custom')}
+                            disabled={updatingGoal}
+                          >
+                            <option value="messages">📨 Total Messages</option>
+                            <option value="engagement">😊 Total Reactions</option>
+                            <option value="polls">📊 Active Polls</option>
+                            <option value="custom">🎯 Custom (Manual)</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-goal-target">Target Value *</label>
+                          <input
+                            id="edit-goal-target"
+                            type="number"
+                            className="input"
+                            value={editGoalTargetValue}
+                            onChange={(e) => setEditGoalTargetValue(e.target.value)}
+                            disabled={updatingGoal}
+                            min={1}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-goal-deadline">Deadline (optional)</label>
+                          <input
+                            id="edit-goal-deadline"
+                            type="datetime-local"
+                            className="input"
+                            value={editGoalDeadline}
+                            onChange={(e) => setEditGoalDeadline(e.target.value)}
+                            disabled={updatingGoal}
+                          />
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={saveGoalEdit}
+                            className="btn"
+                            disabled={updatingGoal || !editGoalTitle.trim() || !editGoalTargetValue}
+                          >
+                            {updatingGoal ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button
+                            onClick={cancelEditGoal}
+                            className="btn btn-secondary"
+                            disabled={updatingGoal}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryVentLink && communityGoals.length > 0 ? (
+                      <div className="polls-list">
+                        {communityGoals.map((goal) => {
+                          const progress = getGoalProgress(goal)
+                          const status = getGoalStatus(goal)
+                          const isOverdue = goal.deadline && new Date(goal.deadline) < new Date() && status !== 'completed'
+
+                          return (
+                            <div
+                              key={goal.id}
+                              className={`poll-card ${!goal.is_active ? 'inactive' : ''}`}
+                              style={{
+                                borderLeft: status === 'completed'
+                                  ? '4px solid var(--success)'
+                                  : status === 'expired'
+                                  ? '4px solid var(--danger)'
+                                  : '4px solid var(--accent)'
+                              }}
+                            >
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                                    <h3>🎯 {goal.title}</h3>
+                                    <span
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: status === 'completed'
+                                          ? 'rgba(16, 185, 129, 0.12)'
+                                          : status === 'expired'
+                                          ? 'rgba(239, 68, 68, 0.12)'
+                                          : goal.is_active
+                                          ? 'rgba(59, 130, 246, 0.12)'
+                                          : 'rgba(107, 114, 128, 0.1)',
+                                        color: status === 'completed'
+                                          ? 'var(--success)'
+                                          : status === 'expired'
+                                          ? 'var(--danger)'
+                                          : goal.is_active
+                                          ? 'var(--accent)'
+                                          : 'var(--text-secondary)'
+                                      }}
+                                    >
+                                      {status === 'completed' ? '✅ Completed' :
+                                       status === 'expired' ? '⏰ Expired' :
+                                       status === 'inactive' ? '⚪ Inactive' :
+                                       '🟢 Active'}
+                                    </span>
+                                    <span
+                                      style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: 'rgba(59,130,246,0.12)',
+                                        color: 'var(--text-primary)'
+                                      }}
+                                    >
+                                      {goal.goal_type === 'messages' ? '📨 Messages' :
+                                       goal.goal_type === 'engagement' ? '😊 Engagement' :
+                                       goal.goal_type === 'polls' ? '📊 Polls' :
+                                       '🎯 Custom'}
+                                    </span>
+                                  </div>
+                                  {goal.description && (
+                                    <p style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                      {goal.description}
+                                    </p>
+                                  )}
+                                  <div style={{ marginTop: '16px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                                      <span style={{ fontSize: '14px', fontWeight: 600, color: 'var(--text-primary)' }}>
+                                        {goal.current_value} / {goal.target_value}
+                                      </span>
+                                      <span style={{ fontSize: '14px', color: 'var(--text-secondary)' }}>
+                                        {progress}%
+                                      </span>
+                                    </div>
+                                    <div className="progress-bar" style={{ width: '100%', height: '12px', background: 'var(--bg-secondary)', borderRadius: '6px', overflow: 'hidden', border: '1px solid var(--border)' }}>
+                                      <div
+                                        style={{
+                                          width: `${progress}%`,
+                                          height: '100%',
+                                          background: status === 'completed'
+                                            ? 'var(--success)'
+                                            : status === 'expired'
+                                            ? 'var(--danger)'
+                                            : 'var(--accent)',
+                                          transition: 'width 0.3s ease',
+                                        }}
+                                      />
+                                    </div>
+                                  </div>
+                                  {goal.deadline && (
+                                    <p style={{ marginTop: '12px', fontSize: '12px', color: isOverdue ? 'var(--danger)' : 'var(--text-secondary)' }}>
+                                      {isOverdue ? '⏰ ' : '📅 '}
+                                      Deadline: {new Date(goal.deadline).toLocaleString()}
+                                    </p>
+                                  )}
+                                  {goal.goal_type === 'custom' && (
+                                    <div style={{ marginTop: '12px', display: 'flex', gap: '8px', alignItems: 'center' }}>
+                                      <input
+                                        type="number"
+                                        className="input"
+                                        style={{ width: '100px', padding: '4px 8px', fontSize: '14px' }}
+                                        value={goal.current_value}
+                                        onChange={(e) => updateGoalProgress(goal.id, parseInt(e.target.value) || 0)}
+                                        min={0}
+                                        placeholder="Progress"
+                                      />
+                                      <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Update progress manually</span>
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    className="btn btn-small btn-secondary"
+                                    onClick={() => startEditGoal(goal)}
+                                    disabled={editingGoal !== null || deletingGoal !== null}
+                                    title="Edit Goal"
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    className={`btn btn-small ${goal.is_active ? 'btn-secondary' : ''}`}
+                                    onClick={() => toggleGoalActive(goal.id, goal.is_active)}
+                                    disabled={editingGoal !== null || deletingGoal !== null}
+                                    title={goal.is_active ? 'Deactivate' : 'Activate'}
+                                  >
+                                    {goal.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  <button
+                                    className="btn btn-small btn-danger"
+                                    onClick={() => deleteGoal(goal.id)}
+                                    disabled={deletingGoal === goal.id || editingGoal !== null}
+                                    title="Delete Goal"
+                                  >
+                                    {deletingGoal === goal.id ? '...' : '🗑️'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🎯</div>
                         <p>No goals yet</p>
                         <p className="empty-hint">Set and track community milestones</p>
-                </div>
-              )}
-            </div>
+                        <button className="btn" onClick={() => setShowCreateGoal(true)}>Create Goal</button>
+                      </div>
+                    ) : null}
+                  </div>
                 )}
 
                 {/* Events & Announcements View */}
