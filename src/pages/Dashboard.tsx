@@ -133,7 +133,28 @@ export default function Dashboard() {
   const [deletingVote, setDeletingVote] = useState<string | null>(null)
   const [voteView, setVoteView] = useState<'all' | 'active' | 'archived'>('all')
   const [feedbackForms, setFeedbackForms] = useState<FeedbackForm[]>([])
+  const [showCreateFeedback, setShowCreateFeedback] = useState(false)
+  const [newFeedbackTitle, setNewFeedbackTitle] = useState('')
+  const [newFeedbackDescription, setNewFeedbackDescription] = useState('')
+  const [newFeedbackType, setNewFeedbackType] = useState<'survey' | 'feedback' | 'feature_request'>('feedback')
+  const [creatingFeedback, setCreatingFeedback] = useState(false)
+  const [editingFeedback, setEditingFeedback] = useState<FeedbackForm | null>(null)
+  const [editFeedbackTitle, setEditFeedbackTitle] = useState('')
+  const [editFeedbackDescription, setEditFeedbackDescription] = useState('')
+  const [editFeedbackType, setEditFeedbackType] = useState<'survey' | 'feedback' | 'feature_request'>('feedback')
+  const [updatingFeedback, setUpdatingFeedback] = useState(false)
+  const [deletingFeedback, setDeletingFeedback] = useState<string | null>(null)
+  const [feedbackAlwaysVisible, setFeedbackAlwaysVisible] = useState<{ [ventLinkId: string]: boolean }>({})
   const [highlights, setHighlights] = useState<CommunityHighlight[]>([])
+  const [showCreateHighlight, setShowCreateHighlight] = useState(false)
+  const [newHighlightTitle, setNewHighlightTitle] = useState('')
+  const [newHighlightText, setNewHighlightText] = useState('')
+  const [newHighlightMessageId, setNewHighlightMessageId] = useState<string | null>(null)
+  const [newHighlightFeatured, setNewHighlightFeatured] = useState(true)
+  const [newHighlightOrder, setNewHighlightOrder] = useState<number>(0)
+  const [creatingHighlight, setCreatingHighlight] = useState(false)
+  const [updatingHighlight, setUpdatingHighlight] = useState<string | null>(null)
+  const [deletingHighlight, setDeletingHighlight] = useState<string | null>(null)
   const [communityGoals, setCommunityGoals] = useState<CommunityGoal[]>([])
   const [communityEvents, setCommunityEvents] = useState<CommunityEvent[]>([])
   const [collaborativeProjects, setCollaborativeProjects] = useState<CollaborativeProject[]>([])
@@ -1030,6 +1051,38 @@ export default function Dashboard() {
             console.error('Error fetching community votes:', err)
           }
         }
+
+        // Fetch Highlights
+        await fetchHighlights(linkIds)
+
+        // Fetch Feedback Forms
+        try {
+          const { data: feedbackData, error: feedbackError } = await supabase
+            .from('feedback_forms')
+            .select('*')
+            .in('vent_link_id', linkIds)
+            .order('created_at', { ascending: false })
+
+          if (feedbackError) {
+            if (feedbackError.code !== 'PGRST116' && feedbackError.code !== '42501') {
+              console.error('Error fetching feedback forms:', feedbackError)
+            }
+          } else if (feedbackData) {
+            setFeedbackForms(feedbackData)
+          }
+        } catch (err) {
+          if (import.meta.env.DEV) {
+            console.error('Error fetching feedback forms:', err)
+          }
+        }
+
+        // Load feedback visibility preferences
+        const visibilityByLink: { [ventLinkId: string]: boolean } = {}
+        linkIds.forEach((id) => {
+          const stored = localStorage.getItem(`ghostinbox_feedback_visible_${id}`)
+          visibilityByLink[id] = stored === 'true'
+        })
+        setFeedbackAlwaysVisible(visibilityByLink)
       }
 
       // Fetch message folders
@@ -1717,6 +1770,142 @@ export default function Dashboard() {
     return 'active'
   }
 
+  // Feedback Form Functions
+  async function createFeedbackForm() {
+    if (!primaryVentLink) {
+      alert('Please create a vent link first')
+      return
+    }
+
+    if (!newFeedbackTitle.trim()) {
+      alert('Please enter a form title')
+      return
+    }
+
+    setCreatingFeedback(true)
+    try {
+      const { data: newForm, error } = await supabase
+        .from('feedback_forms')
+        .insert({
+          vent_link_id: primaryVentLink.id,
+          title: newFeedbackTitle.trim(),
+          description: newFeedbackDescription.trim() || null,
+          form_type: newFeedbackType,
+          is_active: true,
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setFeedbackForms([newForm as FeedbackForm, ...feedbackForms])
+      setNewFeedbackTitle('')
+      setNewFeedbackDescription('')
+      setNewFeedbackType('feedback')
+      setShowCreateFeedback(false)
+    } catch (err: any) {
+      alert(err.message || 'Failed to create feedback form')
+    } finally {
+      setCreatingFeedback(false)
+    }
+  }
+
+  function startEditingFeedback(form: FeedbackForm) {
+    setEditingFeedback(form)
+    setEditFeedbackTitle(form.title)
+    setEditFeedbackDescription(form.description || '')
+    setEditFeedbackType(form.form_type as 'survey' | 'feedback' | 'feature_request')
+    setShowCreateFeedback(false)
+  }
+
+  function cancelEditFeedback() {
+    setEditingFeedback(null)
+    setEditFeedbackTitle('')
+    setEditFeedbackDescription('')
+    setEditFeedbackType('feedback')
+  }
+
+  async function saveFeedbackEdit() {
+    if (!editingFeedback || !editFeedbackTitle.trim()) {
+      alert('Please fill in required fields')
+      return
+    }
+
+    setUpdatingFeedback(true)
+    try {
+      const { error } = await supabase
+        .from('feedback_forms')
+        .update({
+          title: editFeedbackTitle.trim(),
+          description: editFeedbackDescription.trim() || null,
+          form_type: editFeedbackType,
+        })
+        .eq('id', editingFeedback.id)
+
+      if (error) throw error
+
+      setFeedbackForms((prev) =>
+        prev.map((f) =>
+          f.id === editingFeedback.id
+            ? {
+                ...f,
+                title: editFeedbackTitle.trim(),
+                description: editFeedbackDescription.trim() || null,
+                form_type: editFeedbackType,
+              }
+            : f
+        )
+      )
+      cancelEditFeedback()
+    } catch (err: any) {
+      alert(err.message || 'Failed to update feedback form')
+    } finally {
+      setUpdatingFeedback(false)
+    }
+  }
+
+  async function toggleFeedbackActive(formId: string, isActive: boolean) {
+    const { error } = await supabase
+      .from('feedback_forms')
+      .update({ is_active: isActive })
+      .eq('id', formId)
+
+    if (error) {
+      alert(error.message || 'Failed to update form status')
+      return
+    }
+
+    setFeedbackForms((prev) =>
+      prev.map((f) => (f.id === formId ? { ...f, is_active: isActive } : f))
+    )
+  }
+
+  async function deleteFeedbackForm(formId: string) {
+    if (!confirm('Delete this feedback form? This cannot be undone.')) return
+    setDeletingFeedback(formId)
+    try {
+      const { error } = await supabase
+        .from('feedback_forms')
+        .delete()
+        .eq('id', formId)
+      if (error) throw error
+      setFeedbackForms((prev) => prev.filter((f) => f.id !== formId))
+      cancelEditFeedback()
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete feedback form')
+    } finally {
+      setDeletingFeedback(null)
+    }
+  }
+
+  function toggleFeedbackVisibility(ventLinkId: string) {
+    setFeedbackAlwaysVisible((prev) => {
+      const next = { ...prev, [ventLinkId]: !prev[ventLinkId] }
+      localStorage.setItem(`ghostinbox_feedback_visible_${ventLinkId}`, String(next[ventLinkId]))
+      return next
+    })
+  }
+
   async function createQASession() {
     if (!primaryVentLink) {
       alert('Please create a vent link first')
@@ -2179,6 +2368,122 @@ export default function Dashboard() {
     if (raffle.starts_at && new Date(raffle.starts_at) > now) return 'upcoming'
     if (raffle.ends_at && new Date(raffle.ends_at) < now) return 'ended'
     return 'active'
+  }
+
+  async function fetchHighlights(linkIds: string[]) {
+    try {
+      const { data, error } = await supabase
+        .from('community_highlights')
+        .select('*')
+        .in('vent_link_id', linkIds)
+        .order('display_order', { ascending: true })
+        .order('created_at', { ascending: false })
+
+      if (error) {
+        // Suppress common RLS errors
+        if (error.code !== 'PGRST116' && error.code !== '42501') {
+          console.error('Error fetching highlights:', error)
+        }
+        return
+      }
+      setHighlights(data || [])
+    } catch (err) {
+      if (import.meta.env.DEV) {
+        console.error('Error fetching highlights:', err)
+      }
+    }
+  }
+
+  async function createHighlight() {
+    const primary = primaryVentLink
+    if (!primary) return
+    if (!newHighlightTitle.trim() && !newHighlightText.trim()) return
+    try {
+      setCreatingHighlight(true)
+      const { error } = await supabase.from('community_highlights').insert({
+        vent_link_id: primary.id,
+        title: newHighlightTitle.trim() || null,
+        highlight_text: newHighlightText.trim() || null,
+        message_id: newHighlightMessageId || null,
+        is_featured: newHighlightFeatured,
+        display_order: newHighlightOrder || 0,
+      })
+      if (error) {
+        console.error('Error creating highlight:', error)
+      } else {
+        await fetchHighlights([primary.id])
+        setShowCreateHighlight(false)
+        setNewHighlightTitle('')
+        setNewHighlightText('')
+        setNewHighlightMessageId(null)
+        setNewHighlightFeatured(true)
+        setNewHighlightOrder(0)
+      }
+    } catch (err) {
+      console.error('Error creating highlight:', err)
+    } finally {
+      setCreatingHighlight(false)
+    }
+  }
+
+  async function toggleHighlightFeatured(id: string, isFeatured: boolean) {
+    const primary = primaryVentLink
+    try {
+      setUpdatingHighlight(id)
+      const { error } = await supabase
+        .from('community_highlights')
+        .update({ is_featured: !isFeatured })
+        .eq('id', id)
+      if (error) {
+        console.error('Error updating highlight:', error)
+      } else if (primary) {
+        await fetchHighlights([primary.id])
+      }
+    } catch (err) {
+      console.error('Error updating highlight:', err)
+    } finally {
+      setUpdatingHighlight(null)
+    }
+  }
+
+  async function updateHighlightOrder(id: string, order: number) {
+    const primary = primaryVentLink
+    try {
+      setUpdatingHighlight(id)
+      const { error } = await supabase
+        .from('community_highlights')
+        .update({ display_order: order })
+        .eq('id', id)
+      if (error) {
+        console.error('Error updating highlight order:', error)
+      } else if (primary) {
+        await fetchHighlights([primary.id])
+      }
+    } catch (err) {
+      console.error('Error updating highlight order:', err)
+    } finally {
+      setUpdatingHighlight(null)
+    }
+  }
+
+  async function deleteHighlight(id: string) {
+    const primary = primaryVentLink
+    try {
+      setDeletingHighlight(id)
+      const { error } = await supabase
+        .from('community_highlights')
+        .delete()
+        .eq('id', id)
+      if (error) {
+        console.error('Error deleting highlight:', error)
+      } else if (primary) {
+        await fetchHighlights([primary.id])
+      }
+    } catch (err) {
+      console.error('Error deleting highlight:', err)
+    } finally {
+      setDeletingHighlight(null)
+    }
   }
 
   function addPollOption() {
@@ -5099,7 +5404,7 @@ export default function Dashboard() {
                           Create Link First
                         </button>
                       )}
-                    </div>
+          </div>
 
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
@@ -5420,21 +5725,164 @@ export default function Dashboard() {
                     <div className="hub-section-header">
                       <h3>Community Highlights</h3>
                       {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Highlight</button>
+                        <button
+                          className="btn btn-secondary"
+                          onClick={() => setShowCreateHighlight(!showCreateHighlight)}
+                        >
+                          {showCreateHighlight ? 'Cancel' : '+ New Highlight'}
+                        </button>
                       )}
-                        </div>
+                    </div>
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">⭐</div>
                         <p>Create a vent link first</p>
                         <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
                       </div>
+                    ) : showCreateHighlight ? (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label>Highlight Title</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="E.g., Heartfelt thank you note"
+                            value={newHighlightTitle}
+                            onChange={(e) => setNewHighlightTitle(e.target.value)}
+                            disabled={creatingHighlight}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Highlight Text</label>
+                          <textarea
+                            className="input"
+                            placeholder="Share the standout story or quote"
+                            value={newHighlightText}
+                            onChange={(e) => setNewHighlightText(e.target.value)}
+                            disabled={creatingHighlight}
+                            rows={3}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
+                          <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                            <label style={{ margin: 0 }}>Featured</label>
+                            <input
+                              type="checkbox"
+                              checked={newHighlightFeatured}
+                              onChange={(e) => setNewHighlightFeatured(e.target.checked)}
+                              disabled={creatingHighlight}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Display Order</label>
+                            <input
+                              type="number"
+                              className="input"
+                              value={newHighlightOrder}
+                              onChange={(e) => setNewHighlightOrder(Number(e.target.value) || 0)}
+                              disabled={creatingHighlight}
+                              min={0}
+                            />
+                          </div>
+                        </div>
+                        <button
+                          className="btn"
+                          onClick={createHighlight}
+                          disabled={creatingHighlight || (!newHighlightTitle.trim() && !newHighlightText.trim())}
+                        >
+                          {creatingHighlight ? 'Saving...' : 'Save Highlight'}
+                        </button>
+                      </div>
+                    ) : highlights.length > 0 ? (
+                      <div className="polls-list">
+                        {highlights.map((highlight, idx) => (
+                          <div
+                            key={highlight.id}
+                            className={`poll-card ${highlight.is_featured ? '' : 'inactive'}`}
+                            style={{
+                              borderLeft: highlight.is_featured
+                                ? '4px solid var(--accent)'
+                                : '4px solid var(--border)'
+                            }}
+                          >
+                            <div className="poll-card-header">
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                  <h3>⭐ {highlight.title || 'Untitled Highlight'}</h3>
+                                  <span
+                                    style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      background: highlight.is_featured ? 'rgba(236, 72, 153, 0.12)' : 'rgba(107, 114, 128, 0.1)',
+                                      color: highlight.is_featured ? 'var(--accent)' : 'var(--text-secondary)'
+                                    }}
+                                  >
+                                    {highlight.is_featured ? 'Featured' : 'Standard'}
+                                  </span>
+                                  <span
+                                    style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      background: 'rgba(59,130,246,0.12)',
+                                      color: 'var(--text-primary)'
+                                    }}
+                                  >
+                                    Order {highlight.display_order ?? 0}
+                                  </span>
+                                </div>
+                                {highlight.highlight_text && (
+                                  <p style={{ marginTop: '4px', color: 'var(--text-secondary)' }}>
+                                    {highlight.highlight_text}
+                                  </p>
+                                )}
+                              </div>
+                              <div className="poll-actions">
+                                <button
+                                  className="btn btn-small btn-secondary"
+                                  onClick={() => toggleHighlightFeatured(highlight.id, highlight.is_featured)}
+                                  disabled={updatingHighlight === highlight.id}
+                                >
+                                  {highlight.is_featured ? 'Unfeature' : 'Feature'}
+                                </button>
+                                <button
+                                  className="btn btn-small"
+                                  onClick={() => updateHighlightOrder(highlight.id, (highlight.display_order ?? idx) - 1)}
+                                  disabled={updatingHighlight === highlight.id}
+                                  title="Move up"
+                                >
+                                  ↑
+                                </button>
+                                <button
+                                  className="btn btn-small"
+                                  onClick={() => updateHighlightOrder(highlight.id, (highlight.display_order ?? idx) + 1)}
+                                  disabled={updatingHighlight === highlight.id}
+                                  title="Move down"
+                                >
+                                  ↓
+                                </button>
+                                <button
+                                  className="btn btn-small btn-danger"
+                                  onClick={() => deleteHighlight(highlight.id)}
+                                  disabled={deletingHighlight === highlight.id}
+                                >
+                                  🗑️
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <div className="empty-state-compact">
                         <div className="empty-icon">⭐</div>
                         <p>No highlights yet</p>
                         <p className="empty-hint">Feature top messages and showcase community stories</p>
-                    </div>
+                        <button className="btn" onClick={() => setShowCreateHighlight(true)}>Create Highlight</button>
+                      </div>
                     )}
                   </div>
                 )}

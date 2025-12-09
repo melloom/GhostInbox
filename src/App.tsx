@@ -34,14 +34,14 @@ function App() {
         if (isRecovery) {
           setUser(null)
         } else {
-          setUser(session?.user ?? null)
+      setUser(session?.user ?? null)
         }
       }
       setLoading(false)
     }).catch((error) => {
       // Only log in development, and only if it's not a 403
       if (import.meta.env.DEV && error?.status !== 403) {
-        console.error('Error getting session:', error)
+      console.error('Error getting session:', error)
       }
       setUser(null)
       setLoading(false)
@@ -59,7 +59,7 @@ function App() {
         // Let ResetPassword component handle this
         setUser(null)
       } else {
-        setUser(session?.user ?? null)
+      setUser(session?.user ?? null)
       }
     })
 

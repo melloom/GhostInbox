@@ -199,6 +199,53 @@ export default function VentPage() {
           }
           setRaffleEntries(entriesByRaffle)
         }
+
+        // Fetch active Community Votes
+        const { data: votesData, error: votesError } = await supabase
+          .from('community_votes')
+          .select('*')
+          .eq('vent_link_id', ventLinkData.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+
+        if (!votesError && votesData && votesData.length > 0) {
+          // Fetch options and responses for all votes
+          const votesWithData = await Promise.all(
+            votesData.map(async (vote) => {
+              const { data: optionsData } = await supabase
+                .from('vote_options')
+                .select('*')
+                .eq('vote_id', vote.id)
+                .order('display_order', { ascending: true })
+
+              const { data: responsesData } = await supabase
+                .from('vote_responses')
+                .select('option_id')
+                .eq('vote_id', vote.id)
+
+              const voteCounts: { [key: string]: number } = {}
+              responsesData?.forEach((response) => {
+                voteCounts[response.option_id] = (voteCounts[response.option_id] || 0) + 1
+              })
+
+              return {
+                ...vote,
+            options: optionsData || [],
+            vote_counts: voteCounts,
+                total_votes: responsesData?.length || 0,
+              } as CommunityVoteWithOptions
+            })
+          )
+
+          // Check voted votes
+          const votedVotes = JSON.parse(localStorage.getItem('ghostinbox_voted_votes') || '[]')
+          if (votedVotes.length > 0) {
+            const votedId = votesWithData.find(v => votedVotes.includes(v.id))?.id
+            if (votedId) setVotedVoteId(votedId)
+          }
+
+          setActiveVotes(votesWithData)
+        }
       } catch (err: any) {
         setVentLink(null)
         setError(null)
@@ -518,6 +565,69 @@ export default function VentPage() {
     }
   }
 
+  async function handleVoteOnVote(voteId: string, optionId: string) {
+    const vote = activeVotes.find(v => v.id === voteId)
+    if (!vote || votingOnVote || votedVoteId === voteId) return
+
+    const votedVotes = JSON.parse(localStorage.getItem('ghostinbox_voted_votes') || '[]')
+    if (votedVotes.includes(voteId)) {
+      setStatus('You have already voted on this.')
+      setVotedVoteId(voteId)
+      return
+    }
+
+    setVotingOnVote(true)
+    try {
+      const { error } = await supabase
+        .from('vote_responses')
+        .insert({
+          vote_id: voteId,
+          option_id: optionId,
+          ip_hash: null,
+        })
+
+      if (error) {
+        if (error.message.includes('duplicate') || error.message.includes('unique')) {
+          setStatus('You have already voted on this.')
+          setVotedVoteId(voteId)
+          votedVotes.push(voteId)
+          localStorage.setItem('ghostinbox_voted_votes', JSON.stringify(votedVotes))
+        } else {
+          const sanitizedError = sanitizeErrorMessage(error)
+          setStatus(sanitizedError)
+        }
+        return
+      }
+
+      votedVotes.push(voteId)
+      localStorage.setItem('ghostinbox_voted_votes', JSON.stringify(votedVotes))
+      setVotedVoteId(voteId)
+      
+      // Refresh vote data
+      const { data: responsesData } = await supabase
+        .from('vote_responses')
+        .select('option_id')
+        .eq('vote_id', voteId)
+
+      const voteCounts: { [key: string]: number } = {}
+      responsesData?.forEach((response) => {
+        voteCounts[response.option_id] = (voteCounts[response.option_id] || 0) + 1
+      })
+
+      setActiveVotes(activeVotes.map(v => 
+        v.id === voteId 
+          ? { ...v, vote_counts: voteCounts, total_votes: responsesData?.length || 0 }
+          : v
+      ))
+    } catch (err: any) {
+      // Sanitize error message before showing to user
+      const sanitizedError = sanitizeErrorMessage(err)
+      setStatus(sanitizedError)
+    } finally {
+      setVotingOnVote(false)
+    }
+  }
+
   async function submitQuestion(sessionId: string) {
     const questionText = questionTexts[sessionId] || ''
     if (!questionText.trim()) {
@@ -675,15 +785,15 @@ export default function VentPage() {
     <div className="vent-page">
       <div className="vent-container">
         <div className="hero-card">
-          <div className="creator-header">
-            <div className="avatar-circle">
-              {displayTitle.charAt(0).toUpperCase()}
-            </div>
+        <div className="creator-header">
+          <div className="avatar-circle">
+            {displayTitle.charAt(0).toUpperCase()}
+          </div>
             <div className="hero-text">
-              <h1>{displayTitle}</h1>
+          <h1>{displayTitle}</h1>
               <p className="subtitle">Drop a note. You stay anonymous—always.</p>
             </div>
-          </div>
+        </div>
 
           <div className="trust-grid">
             <div className="trust-pill">
@@ -746,6 +856,15 @@ export default function VentPage() {
               <span className="tab-badge">{activeQASessions.length}</span>
             </button>
           )}
+          {activeVotes.length > 0 && (
+            <button
+              className={`vent-tab ${activeTab === 'voting' ? 'active' : ''}`}
+              onClick={() => setActiveTab('voting')}
+            >
+              🗳️ Voting
+              <span className="tab-badge">{activeVotes.length}</span>
+            </button>
+          )}
         </div>
 
         {/* Tab Content */}
@@ -806,7 +925,7 @@ export default function VentPage() {
 
         {activeTab === 'polls' && (
           <div className="tab-content">
-            {/* Active Poll Section */}
+        {/* Active Poll Section */}
             {activePolls.map((poll) => (
           <div key={poll.id} className="poll-section">
             <h3 className="poll-question">{poll.question}</h3>
@@ -855,6 +974,62 @@ export default function VentPage() {
           </div>
         )}
 
+        {activeTab === 'voting' && (
+          <div className="tab-content">
+            {/* Active Vote Section */}
+            {activeVotes.map((vote) => (
+              <div key={vote.id} className="poll-section">
+                <h3 className="poll-question">{vote.title}</h3>
+                {vote.description && (
+                  <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                    {vote.description}
+                  </p>
+                )}
+                {votedVoteId === vote.id || vote.total_votes ? (
+                  <div className="poll-results">
+                    {vote.options.map((option) => {
+                      const voteCount = vote.vote_counts?.[option.id] || 0
+                      const percentage = vote.total_votes && vote.total_votes > 0
+                        ? Math.round((voteCount / vote.total_votes) * 100)
+                        : 0
+                      return (
+                        <div key={option.id} className="poll-result-item">
+                          <div className="poll-result-header">
+                            <span className="poll-option-text">{option.option_text}</span>
+                            <span className="poll-percentage">{percentage}%</span>
+                          </div>
+                          <div className="poll-result-bar">
+                            <div
+                              className="poll-result-fill"
+                              style={{ width: `${percentage}%` }}
+                            />
+                          </div>
+                          <div className="poll-result-count">{voteCount} votes</div>
+                        </div>
+                      )
+                    })}
+                    <div className="poll-total-votes">Total: {vote.total_votes || 0} votes</div>
+                  </div>
+                ) : (
+                  <div className="poll-options">
+                    {vote.options.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => handleVoteOnVote(vote.id, option.id)}
+                        className="poll-option-btn"
+                        disabled={votingOnVote}
+                      >
+                        {option.option_text}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+
         {activeTab === 'qa' && (
           <div className="tab-content">
             {activeQASessions.map((session) => {
@@ -869,8 +1044,8 @@ export default function VentPage() {
                   )}
                   
                   <div style={{ marginBottom: '20px' }}>
-                    <textarea
-                      className="textarea"
+          <textarea
+            className="textarea"
                       placeholder="Ask your question..."
                       value={questionTexts[session.id] || ''}
                       onChange={(e) => setQuestionTexts(prev => ({ ...prev, [session.id]: e.target.value }))}
@@ -1156,7 +1331,7 @@ export default function VentPage() {
                        isEnded ? '⚫ Ended' :
                        '🟢 Active'}
                     </span>
-                  </div>
+            </div>
                   
                   {raffle.description && (
                     <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
@@ -1210,14 +1385,14 @@ export default function VentPage() {
                         onChange={(e) => setEntryNames(prev => ({ ...prev, [raffle.id]: e.target.value }))}
                         style={{ marginBottom: '12px' }}
                       />
-                      <button
+          <button
                         onClick={() => enterRaffle(raffle.id)}
-                        className="btn btn-primary"
+            className="btn btn-primary"
                         disabled={enteringRaffle === raffle.id || !(entryNames[raffle.id] || '').trim()}
                         style={{ width: '100%' }}
-                      >
+          >
                         {enteringRaffle === raffle.id ? 'Entering...' : 'Enter Raffle'}
-                      </button>
+          </button>
                     </div>
                   ) : (
                     <div style={{
