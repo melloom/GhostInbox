@@ -2404,3 +2404,237 @@
   color: var(--text-secondary);
 }
 
+/* ==================== */
+/* Creator Hub Styles   */
+/* ==================== */
+
+.creator-hub {
+  overflow: hidden;
+}
+
+.hub-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  margin: -24px -24px 0 -24px;
+  padding: 0 24px;
+  background: linear-gradient(180deg, rgba(139, 92, 246, 0.05) 0%, transparent 100%);
+}
+
+.hub-tab {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 16px 24px;
+  background: transparent;
+  border: none;
+  border-bottom: 3px solid transparent;
+  color: var(--text-secondary);
+  font-size: 15px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  position: relative;
+}
+
+.hub-tab:hover {
+  color: var(--text-primary);
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.hub-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.hub-tab-icon {
+  font-size: 18px;
+}
+
+.hub-tab-text {
+  font-weight: 600;
+}
+
+.hub-tab-badge {
+  background: var(--accent);
+  color: white;
+  font-size: 11px;
+  font-weight: 700;
+  padding: 2px 8px;
+  border-radius: 12px;
+  min-width: 20px;
+  text-align: center;
+}
+
+.hub-tab.active .hub-tab-badge {
+  background: var(--accent);
+  box-shadow: 0 0 12px rgba(139, 92, 246, 0.4);
+}
+
+.hub-content {
+  padding-top: 24px;
+  min-height: 200px;
+}
+
+.hub-section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 20px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.hub-section-title {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.hub-section-title h3 {
+  font-size: 18px;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+}
+
+.hub-link-select {
+  max-width: 180px;
+  padding: 6px 12px;
+  font-size: 13px;
+}
+
+/* Links View */
+.hub-links-view {
+  animation: fadeIn 0.3s ease;
+}
+
+.vent-link-display-card {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(236, 72, 153, 0.05) 100%);
+  border: 1px solid rgba(139, 92, 246, 0.2);
+  border-radius: 16px;
+  padding: 20px;
+}
+
+.vent-link-url-box {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  padding: 12px 16px;
+  margin-bottom: 12px;
+}
+
+.vent-link-url-box .vent-link-url {
+  display: flex;
+  align-items: baseline;
+  gap: 0;
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 14px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.share-tips-compact {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.share-tip-item {
+  background: var(--bg-secondary);
+  padding: 6px 12px;
+  border-radius: 20px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  transition: all 0.2s ease;
+}
+
+.share-tip-item:hover {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  transform: translateY(-2px);
+}
+
+/* Polls View */
+.hub-polls-view {
+  animation: fadeIn 0.3s ease;
+}
+
+/* Compact Empty State */
+.empty-state-compact {
+  text-align: center;
+  padding: 40px 20px;
+}
+
+.empty-state-compact .empty-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+}
+
+.empty-state-compact p {
+  color: var(--text-secondary);
+  margin-bottom: 16px;
+  font-size: 15px;
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* Mobile Responsive */
+@media (max-width: 640px) {
+  .hub-tabs {
+    padding: 0 16px;
+    margin: -24px -16px 0 -16px;
+  }
+
+  .hub-tab {
+    padding: 12px 16px;
+    flex: 1;
+    justify-content: center;
+  }
+
+  .hub-tab-text {
+    display: none;
+  }
+
+  .hub-tab-icon {
+    font-size: 22px;
+  }
+
+  .hub-section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .hub-section-title {
+    width: 100%;
+    justify-content: space-between;
+  }
+
+  .vent-link-url-box {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .vent-link-url-box .btn-copy {
+    width: 100%;
+  }
+
+  .share-tips-compact {
+    justify-content: center;
+  }
+}
+

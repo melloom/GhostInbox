@@ -22,31 +22,31 @@ async function ensureProfileExists(user: User) {
 
         // Create profile with normalized handle
         const normalizedHandle = normalizeHandle(handle)
-        const { error: profileError } = await supabase.from('profiles').insert({
-          id: user.id,
+    const { error: profileError } = await supabase.from('profiles').insert({
+      id: user.id,
           handle: normalizedHandle,
           display_name: displayName || normalizedHandle,
-        })
+    })
 
     if (profileError && !profileError.message.includes('duplicate') && !profileError.message.includes('unique')) {
       // Log error securely (only in development)
       if (import.meta.env.DEV) {
-        console.error('Error creating profile:', profileError)
+      console.error('Error creating profile:', profileError)
       }
       return
     }
 
         // Create vent link with normalized handle (reuse the one from above)
-        const { error: linkError } = await supabase.from('vent_links').insert({
-          owner_id: user.id,
+    const { error: linkError } = await supabase.from('vent_links').insert({
+      owner_id: user.id,
           slug: normalizedHandle,
           title: `Talk to ${displayName || normalizedHandle}`,
-        })
+    })
 
     if (linkError && !linkError.message.includes('duplicate') && !linkError.message.includes('unique')) {
       // Log error securely (only in development)
       if (import.meta.env.DEV) {
-        console.error('Error creating vent link:', linkError)
+      console.error('Error creating vent link:', linkError)
       }
     }
   }
@@ -248,7 +248,7 @@ export default function LoginPage() {
     if (showForgotPassword) {
       await handleForgotPassword(e)
     } else {
-      await handleAuth()
+    await handleAuth()
     }
   }
 
@@ -298,16 +298,16 @@ export default function LoginPage() {
             disabled={loading}
           />
           {!showForgotPassword && (
-            <input
-              type="password"
-              className="input"
-              placeholder="Password"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              required
-              disabled={loading}
-              minLength={6}
-            />
+          <input
+            type="password"
+            className="input"
+            placeholder="Password"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+            required
+            disabled={loading}
+            minLength={6}
+          />
           )}
           
           {!isSignup && !showForgotPassword && (
@@ -405,48 +405,48 @@ export default function LoginPage() {
               disabled={loading}
             >
               Back to login
-            </button>
+          </button>
           )}
         </form>
 
         {!showForgotPassword && (
-          <p className="auth-footer">
-            {isSignup ? (
-              <>
-                Already have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignup(false)
-                    setError(null)
-                    setSuccessMessage(null)
-                    setHandle('')
-                    setDisplayName('')
-                  }}
-                  className="link"
-                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
-                >
-                  Login
-                </button>
-              </>
-            ) : (
-              <>
-                Don't have an account?{' '}
-                <button
-                  type="button"
-                  onClick={() => {
-                    setIsSignup(true)
-                    setError(null)
-                    setSuccessMessage(null)
-                  }}
-                  className="link"
-                  style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
-                >
-                  Sign up
-                </button>
-              </>
-            )}
-          </p>
+        <p className="auth-footer">
+          {isSignup ? (
+            <>
+              Already have an account?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSignup(false)
+                  setError(null)
+                  setSuccessMessage(null)
+                  setHandle('')
+                  setDisplayName('')
+                }}
+                className="link"
+                style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Login
+              </button>
+            </>
+          ) : (
+            <>
+              Don't have an account?{' '}
+              <button
+                type="button"
+                onClick={() => {
+                  setIsSignup(true)
+                  setError(null)
+                  setSuccessMessage(null)
+                }}
+                className="link"
+                style={{ background: 'none', border: 'none', color: 'inherit', cursor: 'pointer', textDecoration: 'underline' }}
+              >
+                Sign up
+              </button>
+            </>
+          )}
+        </p>
         )}
       </div>
     </div>

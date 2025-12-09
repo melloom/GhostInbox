@@ -77,21 +77,21 @@ export default function VentPage() {
           // Fetch options and votes for all polls
           const pollsWithData = await Promise.all(
             pollsData.map(async (poll) => {
-              const { data: optionsData } = await supabase
-                .from('poll_options')
-                .select('*')
+          const { data: optionsData } = await supabase
+            .from('poll_options')
+            .select('*')
                 .eq('poll_id', poll.id)
-                .order('display_order', { ascending: true })
+            .order('display_order', { ascending: true })
 
-              const { data: votesData } = await supabase
-                .from('poll_votes')
-                .select('option_id')
+          const { data: votesData } = await supabase
+            .from('poll_votes')
+            .select('option_id')
                 .eq('poll_id', poll.id)
 
-              const voteCounts: { [key: string]: number } = {}
-              votesData?.forEach((vote) => {
-                voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
-              })
+          const voteCounts: { [key: string]: number } = {}
+          votesData?.forEach((vote) => {
+            voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
+          })
 
               return {
                 ...poll,

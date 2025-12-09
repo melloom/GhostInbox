@@ -1015,7 +1015,7 @@
   font-weight: 500;
 }
 
-  .preview-content {
+.preview-content {
   padding: 24px;
   display: flex;
   flex-direction: column;

@@ -52,6 +52,7 @@ export default function Dashboard() {
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [selectedFolderFilter, setSelectedFolderFilter] = useState<string | null>(null)
+  const [hubView, setHubView] = useState<'links' | 'polls'>('links')
   const navigate = useNavigate()
 
   useEffect(() => {
@@ -1613,358 +1614,386 @@ export default function Dashboard() {
             </div>
           )}
 
-          {/* Polls Section */}
+          {/* Creator Hub - Combined Links & Polls */}
           {activeTab === 'overview' && (
-            <div className="card">
-              <div className="polls-header">
-                <h2>Polls {polls.length > 0 && <span className="badge">{polls.length}</span>}</h2>
-                <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  {polls.length > 0 && (
-                    <div className="filter-buttons" style={{ marginRight: '8px' }}>
-                      <button
-                        className={`filter-btn ${pollView === 'all' ? 'active' : ''}`}
-                        onClick={() => setPollView('all')}
-                      >
-                        All
-                      </button>
-                      <button
-                        className={`filter-btn ${pollView === 'active' ? 'active' : ''}`}
-                        onClick={() => setPollView('active')}
-                      >
-                        Active
-                      </button>
-                      <button
-                        className={`filter-btn ${pollView === 'archived' ? 'active' : ''}`}
-                        onClick={() => setPollView('archived')}
-                      >
-                        Archived
-                      </button>
-                    </div>
-                  )}
-                  {primaryVentLink ? (
-                    <button
-                      onClick={() => setShowCreatePoll(!showCreatePoll)}
-                      className="btn btn-secondary"
-                    >
-                      {showCreatePoll ? 'Cancel' : '+ New Poll'}
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => setShowCreateLink(true)}
-                      className="btn btn-secondary"
-                      title="Create a vent link first to create polls"
-                    >
-                      Create Vent Link First
-                    </button>
-                  )}
-                </div>
+            <div className="card creator-hub">
+              {/* Hub Tab Navigation */}
+              <div className="hub-tabs">
+                <button
+                  className={`hub-tab ${hubView === 'links' ? 'active' : ''}`}
+                  onClick={() => setHubView('links')}
+                >
+                  <span className="hub-tab-icon">🔗</span>
+                  <span className="hub-tab-text">Links</span>
+                  {ventLinks.length > 0 && <span className="hub-tab-badge">{ventLinks.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'polls' ? 'active' : ''}`}
+                  onClick={() => setHubView('polls')}
+                >
+                  <span className="hub-tab-icon">📊</span>
+                  <span className="hub-tab-text">Polls</span>
+                  {polls.length > 0 && <span className="hub-tab-badge">{polls.length}</span>}
+                </button>
               </div>
 
-              {!primaryVentLink ? (
-                <div className="empty-state" style={{ padding: '40px 20px', textAlign: 'center' }}>
-                  <div className="empty-icon" style={{ fontSize: '48px', marginBottom: '16px' }}>📊</div>
-                  <p className="empty-title">Create a Vent Link First</p>
-                  <p className="empty-hint" style={{ marginBottom: '20px' }}>
-                    You need to create a vent link before you can create polls.
-                  </p>
-                  <button
-                    onClick={() => setShowCreateLink(true)}
-                    className="btn"
-                  >
-                    Create Vent Link
-                  </button>
-                </div>
-              ) : showCreatePoll && (
-                <div className="create-poll-form">
-                  {pollTemplates.length > 0 && (
-                    <div style={{ marginBottom: '16px' }}>
-                      <button
-                        className="btn btn-small btn-secondary"
-                        onClick={() => setShowPollTemplates(!showPollTemplates)}
-                      >
-                        {showPollTemplates ? 'Hide' : 'Show'} Templates ({pollTemplates.length})
-                      </button>
-                      {showPollTemplates && (
-                        <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
-                          {pollTemplates.map(template => (
-                            <div key={template.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '4px' }}>
-                              <div>
-                                <strong>{template.name}</strong>
-                                <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{template.question}</div>
+              {/* Hub Content */}
+              <div className="hub-content">
+                {/* Links View */}
+                {hubView === 'links' && (
+                  <div className="hub-links-view">
+                    <div className="hub-section-header">
+                      <div className="hub-section-title">
+                        <h3>Your Vent Links</h3>
+                        {ventLinks.length > 1 && (
+                          <select
+                            className="select hub-link-select"
+                            value={selectedVentLinkId || ''}
+                            onChange={(e) => setSelectedVentLinkId(e.target.value)}
+                          >
+                            {ventLinks.map(link => (
+                              <option key={link.id} value={link.id}>
+                                {link.title || link.slug}
+                              </option>
+                            ))}
+                          </select>
+                        )}
+                      </div>
+                      {!primaryVentLink && (
+                        <button
+                          onClick={() => setShowCreateLink(!showCreateLink)}
+                          className="btn btn-secondary"
+                        >
+                          {showCreateLink ? 'Cancel' : '+ New Link'}
+                        </button>
+                      )}
+                    </div>
+                    
+                    {showCreateLink && !primaryVentLink ? (
+                      <div className="create-link-form">
+                        <div className="form-group">
+                          <label htmlFor="slug">Slug (URL identifier)</label>
+                          <input
+                            id="slug"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., myname"
+                            value={newLinkSlug}
+                            onChange={(e) => setNewLinkSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                            disabled={creatingLink}
+                          />
+                          <small className="form-hint">
+                            Only lowercase letters, numbers, and hyphens. This will be your URL: /v/{newLinkSlug || 'yourslug'}
+                          </small>
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="title">Title (optional)</label>
+                          <input
+                            id="title"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Talk to me"
+                            value={newLinkTitle}
+                            onChange={(e) => setNewLinkTitle(e.target.value)}
+                            disabled={creatingLink}
+                          />
+                        </div>
+                        <button
+                          onClick={createVentLink}
+                          className="btn"
+                          disabled={creatingLink || !newLinkSlug.trim()}
+                        >
+                          {creatingLink ? 'Creating...' : 'Create Vent Link'}
+                        </button>
+                      </div>
+                    ) : primaryVentLink ? (
+                      <div className="vent-link-display-card">
+                        <div className="vent-link-url-box">
+                          <div className="vent-link-url">
+                            <span className="url-prefix">{window.location.origin}/v/</span>
+                            <span className="url-slug">{primaryVentLink.slug}</span>
+                          </div>
+                          <button
+                            onClick={() => copyLink(primaryVentLink.slug)}
+                            className="btn btn-copy"
+                          >
+                            📋 Copy
+                          </button>
+                        </div>
+                        {primaryVentLink.title && (
+                          <p className="vent-link-title">{primaryVentLink.title}</p>
+                        )}
+                        <div className="share-tips-compact">
+                          <span className="share-tip-item">📸 Instagram</span>
+                          <span className="share-tip-item">🎵 TikTok</span>
+                          <span className="share-tip-item">📖 Stories</span>
+                          <span className="share-tip-item">🐦 Twitter/X</span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🔗</div>
+                        <p>No vent link created yet</p>
+                        <button
+                          onClick={() => setShowCreateLink(true)}
+                          className="btn"
+                        >
+                          Create Your First Link
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Polls View */}
+                {hubView === 'polls' && (
+                  <div className="hub-polls-view">
+                    <div className="hub-section-header">
+                      <div className="hub-section-title">
+                        <h3>Your Polls</h3>
+                        {polls.length > 0 && (
+                          <div className="filter-buttons">
+                            <button
+                              className={`filter-btn ${pollView === 'all' ? 'active' : ''}`}
+                              onClick={() => setPollView('all')}
+                            >
+                              All
+                            </button>
+                            <button
+                              className={`filter-btn ${pollView === 'active' ? 'active' : ''}`}
+                              onClick={() => setPollView('active')}
+                            >
+                              Active
+                            </button>
+                            <button
+                              className={`filter-btn ${pollView === 'archived' ? 'active' : ''}`}
+                              onClick={() => setPollView('archived')}
+                            >
+                              Archived
+                            </button>
+                          </div>
+                        )}
+                      </div>
+                      {primaryVentLink ? (
+                        <button
+                          onClick={() => setShowCreatePoll(!showCreatePoll)}
+                          className="btn btn-secondary"
+                        >
+                          {showCreatePoll ? 'Cancel' : '+ New Poll'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn btn-secondary"
+                        >
+                          Create Link First
+                        </button>
+                      )}
+                    </div>
+
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">📊</div>
+                        <p>Create a vent link first to create polls</p>
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn"
+                        >
+                          Create Vent Link
+                        </button>
+                      </div>
+                    ) : showCreatePoll && (
+                      <div className="create-poll-form">
+                        {pollTemplates.length > 0 && (
+                          <div style={{ marginBottom: '16px' }}>
+                            <button
+                              className="btn btn-small btn-secondary"
+                              onClick={() => setShowPollTemplates(!showPollTemplates)}
+                            >
+                              {showPollTemplates ? 'Hide' : 'Show'} Templates ({pollTemplates.length})
+                            </button>
+                            {showPollTemplates && (
+                              <div style={{ marginTop: '12px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px' }}>
+                                {pollTemplates.map(template => (
+                                  <div key={template.id} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px', marginBottom: '8px', border: '1px solid var(--border)', borderRadius: '4px' }}>
+                                    <div>
+                                      <strong>{template.name}</strong>
+                                      <div style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>{template.question}</div>
+                                    </div>
+                                    <div style={{ display: 'flex', gap: '8px' }}>
+                                      <button
+                                        className="btn btn-small"
+                                        onClick={() => usePollTemplate(template)}
+                                      >
+                                        Use
+                                      </button>
+                                      <button
+                                        className="btn btn-small btn-danger"
+                                        onClick={() => deletePollTemplate(template.id)}
+                                      >
+                                        Delete
+                                      </button>
+                                    </div>
+                                  </div>
+                                ))}
                               </div>
-                              <div style={{ display: 'flex', gap: '8px' }}>
+                            )}
+                          </div>
+                        )}
+                        <div className="form-group">
+                          <label htmlFor="poll-question">Poll Question</label>
+                          <input
+                            id="poll-question"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., What's your favorite feature?"
+                            value={newPollQuestion}
+                            onChange={(e) => setNewPollQuestion(e.target.value)}
+                            disabled={creatingPoll}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Poll Options</label>
+                          {newPollOptions.map((option, index) => (
+                            <div key={index} className="poll-option-input">
+                              <input
+                                type="text"
+                                className="input"
+                                placeholder={`Option ${index + 1}`}
+                                value={option}
+                                onChange={(e) => updatePollOption(index, e.target.value)}
+                                disabled={creatingPoll}
+                              />
+                              {newPollOptions.length > 2 && (
                                 <button
-                                  className="btn btn-small"
-                                  onClick={() => usePollTemplate(template)}
+                                  type="button"
+                                  onClick={() => removePollOption(index)}
+                                  className="btn btn-danger btn-small"
+                                  disabled={creatingPoll}
                                 >
-                                  Use
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addPollOption}
+                            className="btn btn-secondary btn-small"
+                            disabled={creatingPoll}
+                          >
+                            + Add Option
+                          </button>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
+                          <button
+                            onClick={createPoll}
+                            className="btn"
+                            disabled={creatingPoll || !newPollQuestion.trim() || newPollOptions.filter(opt => opt.trim()).length < 2}
+                          >
+                            {creatingPoll ? 'Creating...' : 'Create Poll'}
+                          </button>
+                          {newPollQuestion.trim() && newPollOptions.filter(opt => opt.trim()).length >= 2 && (
+                            <>
+                              <input
+                                type="text"
+                                placeholder="Template name..."
+                                value={newTemplateName}
+                                onChange={(e) => setNewTemplateName(e.target.value)}
+                                className="input"
+                                style={{ flex: 1, maxWidth: '200px' }}
+                              />
+                              <button
+                                onClick={savePollAsTemplate}
+                                className="btn btn-secondary"
+                                disabled={!newTemplateName.trim()}
+                              >
+                                Save as Template
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryVentLink && displayedPolls.length > 0 ? (
+                      <div className="polls-list">
+                        {displayedPolls.map((poll) => (
+                          <div key={poll.id} className={`poll-card ${!poll.is_active ? 'inactive' : ''}`}>
+                            <div className="poll-card-header">
+                              <h3>{poll.question}</h3>
+                              <div className="poll-actions">
+                                <button
+                                  onClick={() => togglePollActive(poll.id, poll.is_active)}
+                                  className="btn btn-small btn-secondary"
+                                >
+                                  {poll.is_active ? 'Deactivate' : 'Activate'}
                                 </button>
                                 <button
-                                  className="btn btn-small btn-danger"
-                                  onClick={() => deletePollTemplate(template.id)}
+                                  onClick={() => setSelectedPoll(selectedPoll?.id === poll.id ? null : poll)}
+                                  className="btn btn-small"
                                 >
-                                  Delete
+                                  {selectedPoll?.id === poll.id ? 'Hide Results' : 'View Results'}
                                 </button>
                               </div>
                             </div>
-                          ))}
-                        </div>
-                      )}
-                    </div>
-                  )}
-                  <div className="form-group">
-                    <label htmlFor="poll-question">Poll Question</label>
-                    <input
-                      id="poll-question"
-                      type="text"
-                      className="input"
-                      placeholder="e.g., What's your favorite feature?"
-                      value={newPollQuestion}
-                      onChange={(e) => setNewPollQuestion(e.target.value)}
-                      disabled={creatingPoll}
-                    />
-                  </div>
-                  <div className="form-group">
-                    <label>Poll Options</label>
-                    {newPollOptions.map((option, index) => (
-                      <div key={index} className="poll-option-input">
-                        <input
-                          type="text"
-                          className="input"
-                          placeholder={`Option ${index + 1}`}
-                          value={option}
-                          onChange={(e) => updatePollOption(index, e.target.value)}
-                          disabled={creatingPoll}
-                        />
-                        {newPollOptions.length > 2 && (
-                          <button
-                            type="button"
-                            onClick={() => removePollOption(index)}
-                            className="btn btn-danger btn-small"
-                            disabled={creatingPoll}
-                          >
-                            ×
-                          </button>
-                        )}
+                            <div className="poll-stats">
+                              <span className="poll-stat">📊 {poll.total_votes || 0} votes</span>
+                              <span className="poll-stat">{poll.is_active ? '✅ Active' : '⏸️ Inactive'}</span>
+                              {poll.expires_at && (
+                                <span className="poll-stat">
+                                  {new Date(poll.expires_at) > new Date() 
+                                    ? `⏰ Expires ${formatTimeAgo(poll.expires_at)}`
+                                    : '⏰ Expired'}
+                                </span>
+                              )}
+                            </div>
+                            {selectedPoll?.id === poll.id && (
+                              <div className="poll-results">
+                                <h4>Results</h4>
+                                {poll.options.map((option) => {
+                                  const voteCount = poll.vote_counts?.[option.id] || 0
+                                  const percentage = poll.total_votes && poll.total_votes > 0
+                                    ? Math.round((voteCount / poll.total_votes) * 100)
+                                    : 0
+                                  return (
+                                    <div key={option.id} className="poll-result-item">
+                                      <div className="poll-result-header">
+                                        <span className="poll-option-text">{option.option_text}</span>
+                                        <span className="poll-percentage">{percentage}%</span>
+                                      </div>
+                                      <div className="poll-result-bar">
+                                        <div
+                                          className="poll-result-fill"
+                                          style={{ width: `${percentage}%` }}
+                                        />
+                                      </div>
+                                      <div className="poll-result-count">{voteCount} votes</div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                    <button
-                      type="button"
-                      onClick={addPollOption}
-                      className="btn btn-secondary btn-small"
-                      disabled={creatingPoll}
-                    >
-                      + Add Option
-                    </button>
-                  </div>
-                  <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                    <button
-                      onClick={createPoll}
-                      className="btn"
-                      disabled={creatingPoll || !newPollQuestion.trim() || newPollOptions.filter(opt => opt.trim()).length < 2}
-                    >
-                      {creatingPoll ? 'Creating...' : 'Create Poll'}
-                    </button>
-                    {newPollQuestion.trim() && newPollOptions.filter(opt => opt.trim()).length >= 2 && (
-                      <>
-                        <input
-                          type="text"
-                          placeholder="Template name..."
-                          value={newTemplateName}
-                          onChange={(e) => setNewTemplateName(e.target.value)}
-                          className="input"
-                          style={{ flex: 1, maxWidth: '200px' }}
-                        />
+                    ) : primaryVentLink && !showCreatePoll && (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">📊</div>
+                        <p>No polls yet</p>
                         <button
-                          onClick={savePollAsTemplate}
-                          className="btn btn-secondary"
-                          disabled={!newTemplateName.trim()}
+                          onClick={() => setShowCreatePoll(true)}
+                          className="btn"
                         >
-                          Save as Template
+                          Create Your First Poll
                         </button>
-                      </>
+                      </div>
                     )}
                   </div>
-                </div>
-              )}
-
-              {primaryVentLink && displayedPolls.length > 0 ? (
-                <div className="polls-list">
-                  {displayedPolls.map((poll) => (
-                    <div key={poll.id} className={`poll-card ${!poll.is_active ? 'inactive' : ''}`}>
-                      <div className="poll-card-header">
-                        <h3>{poll.question}</h3>
-                        <div className="poll-actions">
-                          <button
-                            onClick={() => togglePollActive(poll.id, poll.is_active)}
-                            className="btn btn-small btn-secondary"
-                          >
-                            {poll.is_active ? 'Deactivate' : 'Activate'}
-                          </button>
-                          <button
-                            onClick={() => setSelectedPoll(selectedPoll?.id === poll.id ? null : poll)}
-                            className="btn btn-small"
-                          >
-                            {selectedPoll?.id === poll.id ? 'Hide Results' : 'View Results'}
-                          </button>
-                        </div>
-                      </div>
-                      <div className="poll-stats">
-                        <span className="poll-stat">📊 {poll.total_votes || 0} votes</span>
-                        <span className="poll-stat">{poll.is_active ? '✅ Active' : '⏸️ Inactive'}</span>
-                        {poll.expires_at && (
-                          <span className="poll-stat">
-                            {new Date(poll.expires_at) > new Date() 
-                              ? `⏰ Expires ${formatTimeAgo(poll.expires_at)}`
-                              : '⏰ Expired'}
-                          </span>
-                        )}
-                      </div>
-                      {selectedPoll?.id === poll.id && (
-                        <div className="poll-results">
-                          <h4>Results</h4>
-                          {poll.options.map((option) => {
-                            const voteCount = poll.vote_counts?.[option.id] || 0
-                            const percentage = poll.total_votes && poll.total_votes > 0
-                              ? Math.round((voteCount / poll.total_votes) * 100)
-                              : 0
-                            return (
-                              <div key={option.id} className="poll-result-item">
-                                <div className="poll-result-header">
-                                  <span className="poll-option-text">{option.option_text}</span>
-                                  <span className="poll-percentage">{percentage}%</span>
-                                </div>
-                                <div className="poll-result-bar">
-                                  <div
-                                    className="poll-result-fill"
-                                    style={{ width: `${percentage}%` }}
-                                  />
-                                </div>
-                                <div className="poll-result-count">{voteCount} votes</div>
-                              </div>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  ))}
-                </div>
-              ) : primaryVentLink && !showCreatePoll && (
-                <div className="empty-state">
-                  <div className="empty-icon">📊</div>
-                  <p className="empty-title">No polls yet</p>
-                  <p className="empty-hint">Create a poll to engage with your audience!</p>
-                </div>
-              )}
-            </div>
-          )}
-
-          {/* Two Column Layout for Vent Link and Activity */}
-          <div className="dashboard-top-grid">
-            {/* Vent Link Section */}
-            <div className="card">
-              <div className="vent-link-header">
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h2>Your Vent Links</h2>
-                  {ventLinks.length > 1 && (
-                    <select
-                      className="select"
-                      value={selectedVentLinkId || ''}
-                      onChange={(e) => setSelectedVentLinkId(e.target.value)}
-                      style={{ maxWidth: '200px' }}
-                    >
-                      {ventLinks.map(link => (
-                        <option key={link.id} value={link.id}>
-                          {link.title || link.slug}
-                        </option>
-                      ))}
-                    </select>
-                  )}
-                </div>
-                {!primaryVentLink && (
-                  <button
-                    onClick={() => setShowCreateLink(!showCreateLink)}
-                    className="btn"
-                  >
-                    {showCreateLink ? 'Cancel' : 'Create Link'}
-                  </button>
                 )}
               </div>
-              
-              {showCreateLink && !primaryVentLink ? (
-                <div className="create-link-form">
-                  <div className="form-group">
-                    <label htmlFor="slug">Slug (URL identifier)</label>
-                    <input
-                      id="slug"
-                      type="text"
-                      className="input"
-                      placeholder="e.g., myname"
-                      value={newLinkSlug}
-                      onChange={(e) => setNewLinkSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                      disabled={creatingLink}
-                    />
-                    <small className="form-hint">
-                      Only lowercase letters, numbers, and hyphens. This will be your URL: /v/{newLinkSlug || 'yourslug'}
-                    </small>
-                  </div>
-                  <div className="form-group">
-                    <label htmlFor="title">Title (optional)</label>
-                    <input
-                      id="title"
-                      type="text"
-                      className="input"
-                      placeholder="e.g., Talk to me"
-                      value={newLinkTitle}
-                      onChange={(e) => setNewLinkTitle(e.target.value)}
-                      disabled={creatingLink}
-                    />
-                  </div>
-                  <button
-                    onClick={createVentLink}
-                    className="btn"
-                    disabled={creatingLink || !newLinkSlug.trim()}
-                  >
-                    {creatingLink ? 'Creating...' : 'Create Vent Link'}
-                  </button>
-                </div>
-              ) : primaryVentLink ? (
-                <div className="vent-link-section">
-                  <div className="vent-link-display">
-                    <div className="vent-link-url">
-                      <span className="url-prefix">{window.location.origin}/v/</span>
-                      <span className="url-slug">{primaryVentLink.slug}</span>
-                    </div>
-                    <button
-                      onClick={() => copyLink(primaryVentLink.slug)}
-                      className="btn btn-copy"
-                    >
-                      📋 Copy
-                    </button>
-                  </div>
-                  {primaryVentLink.title && (
-                    <p className="vent-link-title">{primaryVentLink.title}</p>
-                  )}
-                  <div className="share-tips">
-                    <p>💡 <strong>Share this link:</strong></p>
-                    <ul>
-                      <li>Add it to your Instagram bio</li>
-                      <li>Pin it on your TikTok profile</li>
-                      <li>Share it in your stories</li>
-                      <li>Post it on Twitter/X</li>
-                    </ul>
-                  </div>
-                </div>
-              ) : (
-                <div className="empty-vent-link">
-                  <div className="empty-icon">🔗</div>
-                  <p>No vent link created yet.</p>
-                  <p className="empty-hint">Create your first vent link to start receiving anonymous messages!</p>
-                </div>
-              )}
             </div>
-
-          </div>
+          )}
 
           {/* Theme Summary Section */}
           {messages.length > 0 && activeTab === 'overview' && (
