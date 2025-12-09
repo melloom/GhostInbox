@@ -261,6 +261,10 @@ CREATE POLICY "QA sessions: owners can manage"
   );
 
 DROP POLICY IF EXISTS "QA questions: public can insert, owners can manage" ON public.qa_questions;
+DROP POLICY IF EXISTS "QA questions: public can insert" ON public.qa_questions;
+DROP POLICY IF EXISTS "QA questions: owners can manage" ON public.qa_questions;
+DROP POLICY IF EXISTS "QA questions: public can select active" ON public.qa_questions;
+
 CREATE POLICY "QA questions: public can insert"
   ON public.qa_questions
   FOR INSERT
@@ -325,6 +329,10 @@ CREATE POLICY "Challenges: owners can manage"
   );
 
 DROP POLICY IF EXISTS "Challenge submissions: public can insert, owners can manage" ON public.challenge_submissions;
+DROP POLICY IF EXISTS "Challenge submissions: public can insert" ON public.challenge_submissions;
+DROP POLICY IF EXISTS "Challenge submissions: owners can manage" ON public.challenge_submissions;
+DROP POLICY IF EXISTS "Challenge submissions: public can select active" ON public.challenge_submissions;
+
 CREATE POLICY "Challenge submissions: public can insert"
   ON public.challenge_submissions
   FOR INSERT
