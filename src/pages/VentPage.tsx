@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { supabase, VentLink, PollWithOptions, QASession, QAQuestion, Challenge, ChallengeSubmission, Raffle, RaffleEntry, CommunityVoteWithOptions } from '../lib/supabase'
+import { supabase, VentLink, PollWithOptions, QASession, QAQuestion, Challenge, ChallengeSubmission, Raffle, RaffleEntry, CommunityVoteWithOptions, FeedbackForm } from '../lib/supabase'
 import { validateMessage, prepareMessageForStorage } from '../lib/validation'
 import { sanitizeErrorMessage } from '../lib/errorHandler'
 import './VentPage.css'
@@ -32,7 +32,7 @@ export default function VentPage() {
   const [activePolls, setActivePolls] = useState<PollWithOptions[]>([])
   const [votedPollId, setVotedPollId] = useState<string | null>(null)
   const [voting, setVoting] = useState(false)
-  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa' | 'challenges' | 'raffles' | 'voting'>('message')
+  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa' | 'challenges' | 'raffles' | 'voting' | 'feedback'>('message')
   const [activeQASessions, setActiveQASessions] = useState<QASession[]>([])
   const [qaQuestions, setQaQuestions] = useState<{ [sessionId: string]: QAQuestion[] }>({})
   const [submittingQuestion, setSubmittingQuestion] = useState<string | null>(null)
@@ -48,6 +48,9 @@ export default function VentPage() {
   const [activeVotes, setActiveVotes] = useState<CommunityVoteWithOptions[]>([])
   const [votedVoteId, setVotedVoteId] = useState<string | null>(null)
   const [votingOnVote, setVotingOnVote] = useState(false)
+  const [activeFeedbackForms, setActiveFeedbackForms] = useState<FeedbackForm[]>([])
+  const [feedbackResponses, setFeedbackResponses] = useState<{ [formId: string]: string }>({})
+  const [submittingFeedback, setSubmittingFeedback] = useState<string | null>(null)
 
   useEffect(() => {
     if (!slug) return
@@ -245,6 +248,24 @@ export default function VentPage() {
           }
 
           setActiveVotes(votesWithData)
+        }
+
+        // Fetch active Feedback Forms
+        const { data: feedbackData, error: feedbackError } = await supabase
+          .from('feedback_forms')
+          .select('*')
+          .eq('vent_link_id', ventLinkData.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+
+        if (!feedbackError && feedbackData) {
+          setActiveFeedbackForms(feedbackData)
+        }
+
+        // Check if feedback tab should always be visible
+        const alwaysVisible = localStorage.getItem(`ghostinbox_feedback_visible_${ventLinkData.id}`) === 'true'
+        if (alwaysVisible && activeTab === 'message') {
+          // Don't auto-switch, just ensure tab is available
         }
       } catch (err: any) {
         setVentLink(null)
@@ -693,6 +714,39 @@ export default function VentPage() {
     }
   }
 
+  async function submitFeedback(formId: string) {
+    const responseText = feedbackResponses[formId] || ''
+    if (!responseText.trim()) {
+      setStatus('Please enter your feedback')
+      return
+    }
+
+    setSubmittingFeedback(formId)
+    try {
+      const { error } = await supabase
+        .from('feedback_responses')
+        .insert({
+          form_id: formId,
+          response_text: responseText.trim(),
+          ip_hash: null,
+        })
+
+      if (error) {
+        const sanitizedError = sanitizeErrorMessage(error)
+        setStatus(sanitizedError)
+        return
+      }
+
+      setFeedbackResponses((prev) => ({ ...prev, [formId]: '' }))
+      setStatus('Thank you for your feedback!')
+    } catch (err: any) {
+      const sanitizedError = sanitizeErrorMessage(err)
+      setStatus(sanitizedError)
+    } finally {
+      setSubmittingFeedback(null)
+    }
+  }
+
   async function submitQuestion(sessionId: string) {
     const questionText = questionTexts[sessionId] || ''
     if (!questionText.trim()) {
@@ -930,6 +984,15 @@ export default function VentPage() {
               <span className="tab-badge">{activeVotes.length}</span>
             </button>
           )}
+          {(activeFeedbackForms.length > 0 || (ventLink && localStorage.getItem(`ghostinbox_feedback_visible_${ventLink.id}`) === 'true')) && (
+            <button
+              className={`vent-tab ${activeTab === 'feedback' ? 'active' : ''}`}
+              onClick={() => setActiveTab('feedback')}
+            >
+              📝 Feedback
+              {activeFeedbackForms.length > 0 && <span className="tab-badge">{activeFeedbackForms.length}</span>}
+            </button>
+          )}
         </div>
 
         {/* Tab Content */}
@@ -1092,6 +1155,57 @@ export default function VentPage() {
                 )}
               </div>
             ))}
+          </div>
+        )}
+
+        {activeTab === 'feedback' && (
+          <div className="tab-content">
+            {activeFeedbackForms.length > 0 ? (
+              activeFeedbackForms.map((form) => (
+                <div key={form.id} className="poll-section">
+                  <h3 className="poll-question">{form.title}</h3>
+                  {form.description && (
+                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                      {form.description}
+                    </p>
+                  )}
+                  <div style={{ marginBottom: '20px' }}>
+                    <textarea
+                      className="textarea"
+                      placeholder="Share your feedback, suggestions, or feature requests..."
+                      value={feedbackResponses[form.id] || ''}
+                      onChange={(e) => setFeedbackResponses((prev) => ({ ...prev, [form.id]: e.target.value }))}
+                      disabled={submittingFeedback === form.id}
+                      rows={6}
+                      maxLength={2000}
+                    />
+                    <div className="char-counter">
+                      {(feedbackResponses[form.id] || '').length} / 2000 characters
+                    </div>
+                  </div>
+                  <button
+                    onClick={() => submitFeedback(form.id)}
+                    className="btn btn-primary"
+                    disabled={submittingFeedback === form.id || !(feedbackResponses[form.id] || '').trim()}
+                    style={{ width: '100%' }}
+                  >
+                    {submittingFeedback === form.id ? 'Submitting...' : 'Submit Feedback'}
+                  </button>
+                  {status && form.id === submittingFeedback && (
+                    <div className={status.includes('Thank you') ? 'success-message' : 'error-message'} style={{ marginTop: '12px' }}>
+                      {status}
+                    </div>
+                  )}
+                </div>
+              ))
+            ) : (
+              <div className="poll-section">
+                <h3 className="poll-question">Feedback</h3>
+                <p style={{ textAlign: 'center', color: 'var(--text-secondary)' }}>
+                  No feedback forms available at the moment.
+                </p>
+              </div>
+            )}
           </div>
         )}
 

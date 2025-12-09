@@ -529,12 +529,16 @@ export default function Dashboard() {
         async (payload) => {
           try {
             const response = payload.new as any
-            const { data: responsesData, error } = await supabase
+            const { count } = await supabase
               .from('feedback_responses')
-              .select('id')
+              .select('*', { count: 'exact', head: true })
               .eq('form_id', response.form_id)
-            if (error) return
-            // Note: We'll fetch response counts when viewing forms
+            if (count !== null) {
+              setFeedbackResponseCounts((prev) => ({
+                ...prev,
+                [response.form_id]: count
+              }))
+            }
           } catch (err) {
             console.error('Error updating feedback response counts:', err)
           }
@@ -1222,6 +1226,17 @@ export default function Dashboard() {
             }
           } else if (feedbackData) {
             setFeedbackForms(feedbackData)
+            
+            // Fetch response counts for each form
+            const counts: { [formId: string]: number } = {}
+            for (const form of feedbackData) {
+              const { count } = await supabase
+                .from('feedback_responses')
+                .select('*', { count: 'exact', head: true })
+                .eq('form_id', form.id)
+              counts[form.id] = count || 0
+            }
+            setFeedbackResponseCounts(counts)
           }
         } catch (err) {
           if (import.meta.env.DEV) {
@@ -6128,84 +6143,72 @@ export default function Dashboard() {
 
                     {primaryVentLink && feedbackForms.length > 0 ? (
                       <div className="polls-list">
-                        {feedbackForms.map((form) => {
-                          // Fetch response count for this form
-                          const [responseCount, setResponseCount] = useState<number>(0)
-                          useEffect(() => {
-                            supabase
-                              .from('feedback_responses')
-                              .select('id', { count: 'exact', head: true })
-                              .eq('form_id', form.id)
-                              .then(({ count }) => setResponseCount(count || 0))
-                          }, [form.id])
-
-                          return (
-                            <div key={form.id} className={`poll-card ${!form.is_active ? 'inactive' : ''}`}>
-                              <div className="poll-card-header">
-                                <div style={{ flex: 1 }}>
-                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
-                                    <h3>📝 {form.title}</h3>
-                                    <span style={{
-                                      padding: '4px 8px',
-                                      borderRadius: '4px',
-                                      fontSize: '11px',
-                                      fontWeight: 600,
-                                      background: form.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
-                                      color: form.is_active ? 'var(--success)' : 'var(--text-secondary)'
-                                    }}>
-                                      {form.is_active ? '🟢 Active' : '⚪ Inactive'}
-                                    </span>
-                                    <span style={{
-                                      padding: '4px 8px',
-                                      borderRadius: '4px',
-                                      fontSize: '11px',
-                                      fontWeight: 600,
-                                      background: 'rgba(59,130,246,0.12)',
-                                      color: 'var(--text-primary)'
-                                    }}>
-                                      {form.form_type === 'survey' ? '📊 Survey' :
-                                       form.form_type === 'feature_request' ? '💡 Feature Request' :
-                                       '💬 Feedback'}
-                                    </span>
-                                  </div>
-                                  {form.description && (
-                                    <p style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                                      {form.description}
-                                    </p>
-                                  )}
-                                  <div style={{ marginTop: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-                                    <span>Responses: <strong>{responseCount}</strong></span>
-                                  </div>
+                        {feedbackForms.map((form) => (
+                          <div key={form.id} className={`poll-card ${!form.is_active ? 'inactive' : ''}`}>
+                            <div className="poll-card-header">
+                              <div style={{ flex: 1 }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                  <h3>📝 {form.title}</h3>
+                                  <span style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    background: form.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                                    color: form.is_active ? 'var(--success)' : 'var(--text-secondary)'
+                                  }}>
+                                    {form.is_active ? '🟢 Active' : '⚪ Inactive'}
+                                  </span>
+                                  <span style={{
+                                    padding: '4px 8px',
+                                    borderRadius: '4px',
+                                    fontSize: '11px',
+                                    fontWeight: 600,
+                                    background: 'rgba(59,130,246,0.12)',
+                                    color: 'var(--text-primary)'
+                                  }}>
+                                    {form.form_type === 'survey' ? '📊 Survey' :
+                                     form.form_type === 'feature_request' ? '💡 Feature Request' :
+                                     '💬 Feedback'}
+                                  </span>
                                 </div>
-                                <div className="poll-actions">
-                                  <button
-                                    onClick={() => startEditingFeedback(form)}
-                                    className="btn btn-small btn-secondary"
-                                    title="Edit Form"
-                                    disabled={editingFeedback !== null}
-                                  >
-                                    ✏️ Edit
-                                  </button>
-                                  <button
-                                    onClick={() => toggleFeedbackActive(form.id, !form.is_active)}
-                                    className={`btn btn-small ${form.is_active ? 'btn-secondary' : ''}`}
-                                    title={form.is_active ? 'Deactivate' : 'Activate'}
-                                  >
-                                    {form.is_active ? '⏸️' : '▶️'}
-                                  </button>
-                                  <button
-                                    onClick={() => deleteFeedbackForm(form.id)}
-                                    className="btn btn-small btn-danger"
-                                    title="Delete Form"
-                                    disabled={deletingFeedback === form.id}
-                                  >
-                                    {deletingFeedback === form.id ? '...' : '🗑️'}
-                                  </button>
+                                {form.description && (
+                                  <p style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                    {form.description}
+                                  </p>
+                                )}
+                                <div style={{ marginTop: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                                  <span>Responses: <strong>{feedbackResponseCounts[form.id] || 0}</strong></span>
                                 </div>
                               </div>
+                              <div className="poll-actions">
+                                <button
+                                  onClick={() => startEditingFeedback(form)}
+                                  className="btn btn-small btn-secondary"
+                                  title="Edit Form"
+                                  disabled={editingFeedback !== null}
+                                >
+                                  ✏️ Edit
+                                </button>
+                                <button
+                                  onClick={() => toggleFeedbackActive(form.id, !form.is_active)}
+                                  className={`btn btn-small ${form.is_active ? 'btn-secondary' : ''}`}
+                                  title={form.is_active ? 'Deactivate' : 'Activate'}
+                                >
+                                  {form.is_active ? '⏸️' : '▶️'}
+                                </button>
+                                <button
+                                  onClick={() => deleteFeedbackForm(form.id)}
+                                  className="btn btn-small btn-danger"
+                                  title="Delete Form"
+                                  disabled={deletingFeedback === form.id}
+                                >
+                                  {deletingFeedback === form.id ? '...' : '🗑️'}
+                                </button>
+                              </div>
                             </div>
-                          )
-                        })}
+                          </div>
+                        ))}
                       </div>
                     ) : primaryVentLink ? (
                       <div className="empty-state-compact">

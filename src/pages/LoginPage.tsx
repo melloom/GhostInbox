@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '../lib/supabase'
 import type { User } from '@supabase/supabase-js'
@@ -62,7 +62,17 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
+  const [rememberMe, setRememberMe] = useState(false)
   const navigate = useNavigate()
+
+  // Load remembered email on mount
+  useEffect(() => {
+    const rememberedEmail = localStorage.getItem('ghostinbox_remembered_email')
+    if (rememberedEmail) {
+      setEmail(rememberedEmail)
+      setRememberMe(true)
+    }
+  }, [])
 
   const handleAuth = async () => {
     setError(null)
@@ -201,6 +211,14 @@ export default function LoginPage() {
       if (signInData.user) {
         // Check if profile exists, create it if not (for users who signed up with email confirmation)
         await ensureProfileExists(signInData.user)
+        
+        // Save email if "Remember Me" is checked
+        if (rememberMe) {
+          localStorage.setItem('ghostinbox_remembered_email', email.trim().toLowerCase())
+        } else {
+          localStorage.removeItem('ghostinbox_remembered_email')
+        }
+        
         navigate('/dashboard')
       }
     }
@@ -311,19 +329,32 @@ export default function LoginPage() {
           )}
           
           {!isSignup && !showForgotPassword && (
-            <button
-              type="button"
-              onClick={() => {
-                setShowForgotPassword(true)
-                setError(null)
-                setSuccessMessage(null)
-                setPassword('')
-              }}
-              className="forgot-password-link"
-              disabled={loading}
-            >
-              Forgot password?
-            </button>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '8px', marginBottom: '8px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                <input
+                  type="checkbox"
+                  checked={rememberMe}
+                  onChange={(e) => setRememberMe(e.target.checked)}
+                  disabled={loading}
+                  style={{ cursor: 'pointer', width: '16px', height: '16px' }}
+                />
+                <span>Remember me</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowForgotPassword(true)
+                  setError(null)
+                  setSuccessMessage(null)
+                  setPassword('')
+                }}
+                className="forgot-password-link"
+                disabled={loading}
+                style={{ background: 'none', border: 'none', color: 'var(--accent)', cursor: 'pointer', textDecoration: 'underline', fontSize: '14px', padding: 0 }}
+              >
+                Forgot password?
+              </button>
+            </div>
           )}
 
           {error && <div className="error-message">{error}</div>}
