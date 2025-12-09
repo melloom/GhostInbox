@@ -92,6 +92,17 @@ export default function Dashboard() {
   const [newChallengeRules, setNewChallengeRules] = useState('')
   const [creatingChallenge, setCreatingChallenge] = useState(false)
   const [selectedChallenge, setSelectedChallenge] = useState<Challenge | null>(null)
+  const [editingChallenge, setEditingChallenge] = useState<Challenge | null>(null)
+  const [editChallengeTitle, setEditChallengeTitle] = useState('')
+  const [editChallengeDescription, setEditChallengeDescription] = useState('')
+  const [editChallengeType, setEditChallengeType] = useState<'contest' | 'giveaway' | 'challenge'>('challenge')
+  const [editChallengeStartsAt, setEditChallengeStartsAt] = useState('')
+  const [editChallengeEndsAt, setEditChallengeEndsAt] = useState('')
+  const [editChallengePrize, setEditChallengePrize] = useState('')
+  const [editChallengeRules, setEditChallengeRules] = useState('')
+  const [updatingChallenge, setUpdatingChallenge] = useState(false)
+  const [challengeFilter, setChallengeFilter] = useState<'all' | 'active' | 'inactive' | 'upcoming' | 'ended'>('all')
+  const [submissionFilter, setSubmissionFilter] = useState<{ [challengeId: string]: 'all' | 'winners' | 'non-winners' }>({})
   const [communityVotes, setCommunityVotes] = useState<CommunityVoteWithOptions[]>([])
   const [feedbackForms, setFeedbackForms] = useState<FeedbackForm[]>([])
   const [highlights, setHighlights] = useState<CommunityHighlight[]>([])
@@ -248,6 +259,103 @@ export default function Dashboard() {
         channel.unsubscribe()
       })
       votesChannel.unsubscribe()
+    }
+
+    // Subscribe to challenge changes for each vent link
+    const challengeChannels = linkIds.map(linkId => {
+      return supabase
+        .channel(`challenges_${linkId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'challenges',
+            filter: `vent_link_id=eq.${linkId}`
+          },
+          async (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const challenge = payload.new as Challenge
+              setChallenges((prev) => [challenge, ...prev])
+              // Fetch submissions for new challenge
+              const { data: submissionsData } = await supabase
+                .from('challenge_submissions')
+                .select('*')
+                .eq('challenge_id', challenge.id)
+                .order('created_at', { ascending: false })
+              setChallengeSubmissions((prev) => ({
+                ...prev,
+                [challenge.id]: submissionsData || []
+              }))
+            } else if (payload.eventType === 'UPDATE') {
+              const challenge = payload.new as Challenge
+              setChallenges((prev) =>
+                prev.map((c) => (c.id === challenge.id ? challenge : c))
+              )
+            } else if (payload.eventType === 'DELETE') {
+              setChallenges((prev) => prev.filter((c) => c.id !== payload.old.id))
+              setChallengeSubmissions((prev) => {
+                const updated = { ...prev }
+                delete updated[payload.old.id]
+                return updated
+              })
+            }
+          }
+        )
+        .subscribe()
+    })
+
+    // Subscribe to challenge submission changes
+    const submissionChannel = supabase
+      .channel('challenge_submissions_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'challenge_submissions'
+        },
+        async (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const submission = payload.new as ChallengeSubmission
+            // Fetch all submissions for this challenge to update the list
+            const { data: submissionsData } = await supabase
+              .from('challenge_submissions')
+              .select('*')
+              .eq('challenge_id', submission.challenge_id)
+              .order('created_at', { ascending: false })
+            
+            setChallengeSubmissions((prev) => ({
+              ...prev,
+              [submission.challenge_id]: submissionsData || []
+            }))
+          } else if (payload.eventType === 'DELETE') {
+            const oldSubmission = payload.old as ChallengeSubmission
+            setChallengeSubmissions((prev) => {
+              const current = prev[oldSubmission.challenge_id] || []
+              return {
+                ...prev,
+                [oldSubmission.challenge_id]: current.filter(s => s.id !== oldSubmission.id)
+              }
+            })
+          }
+        }
+      )
+      .subscribe()
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      messageChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      pollChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      votesChannel.unsubscribe()
+      challengeChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      submissionChannel.unsubscribe()
     }
   }, [ventLinks, polls])
 
@@ -1163,6 +1271,139 @@ export default function Dashboard() {
       alert(err.message || 'Failed to delete challenge')
     }
   }
+
+  function startEditChallenge(challenge: Challenge) {
+    setEditingChallenge(challenge)
+    setEditChallengeTitle(challenge.title)
+    setEditChallengeDescription(challenge.description || '')
+    setEditChallengeType(challenge.challenge_type)
+    setEditChallengeStartsAt(challenge.starts_at ? new Date(challenge.starts_at).toISOString().slice(0, 16) : '')
+    setEditChallengeEndsAt(challenge.ends_at ? new Date(challenge.ends_at).toISOString().slice(0, 16) : '')
+    setEditChallengePrize(challenge.prize_description || '')
+    setEditChallengeRules(challenge.rules || '')
+    setShowCreateChallenge(false)
+  }
+
+  function cancelEditChallenge() {
+    setEditingChallenge(null)
+    setEditChallengeTitle('')
+    setEditChallengeDescription('')
+    setEditChallengeType('challenge')
+    setEditChallengeStartsAt('')
+    setEditChallengeEndsAt('')
+    setEditChallengePrize('')
+    setEditChallengeRules('')
+  }
+
+  async function saveChallengeEdit() {
+    if (!editingChallenge || !editChallengeTitle.trim()) {
+      alert('Please enter a challenge title')
+      return
+    }
+
+    setUpdatingChallenge(true)
+    try {
+      const { error } = await supabase
+        .from('challenges')
+        .update({
+          title: editChallengeTitle.trim(),
+          description: editChallengeDescription.trim() || null,
+          challenge_type: editChallengeType,
+          starts_at: editChallengeStartsAt ? new Date(editChallengeStartsAt).toISOString() : null,
+          ends_at: editChallengeEndsAt ? new Date(editChallengeEndsAt).toISOString() : null,
+          prize_description: editChallengePrize.trim() || null,
+          rules: editChallengeRules.trim() || null,
+        })
+        .eq('id', editingChallenge.id)
+
+      if (error) throw error
+
+      cancelEditChallenge()
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to update challenge')
+    } finally {
+      setUpdatingChallenge(false)
+    }
+  }
+
+  async function duplicateChallenge(challenge: Challenge) {
+    if (!primaryVentLink) {
+      alert('Please create a vent link first')
+      return
+    }
+
+    setCreatingChallenge(true)
+    try {
+      const { error } = await supabase
+        .from('challenges')
+        .insert({
+          vent_link_id: primaryVentLink.id,
+          title: `${challenge.title} (Copy)`,
+          description: challenge.description,
+          challenge_type: challenge.challenge_type,
+          is_active: false, // Start as inactive
+          starts_at: challenge.starts_at,
+          ends_at: challenge.ends_at,
+          prize_description: challenge.prize_description,
+          rules: challenge.rules,
+        })
+
+      if (error) throw error
+
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to duplicate challenge')
+    } finally {
+      setCreatingChallenge(false)
+    }
+  }
+
+  function exportChallengeSubmissions(challengeId: string) {
+    const submissions = challengeSubmissions[challengeId] || []
+    if (submissions.length === 0) {
+      alert('No submissions to export')
+      return
+    }
+
+    const challenge = challenges.find(c => c.id === challengeId)
+    const csvContent = [
+      ['Submission ID', 'Submission Text', 'Is Winner', 'Submitted At'].join(','),
+      ...submissions.map(s => [
+        s.id,
+        `"${s.submission_text.replace(/"/g, '""')}"`,
+        s.is_winner ? 'Yes' : 'No',
+        new Date(s.created_at).toISOString()
+      ].join(','))
+    ].join('\n')
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' })
+    const link = document.createElement('a')
+    const url = URL.createObjectURL(blob)
+    link.setAttribute('href', url)
+    link.setAttribute('download', `${challenge?.title || 'challenge'}_submissions_${new Date().toISOString().split('T')[0]}.csv`)
+    link.style.visibility = 'hidden'
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  function getChallengeStatus(challenge: Challenge): 'upcoming' | 'active' | 'ended' | 'inactive' {
+    if (!challenge.is_active) return 'inactive'
+    const now = new Date()
+    if (challenge.starts_at && new Date(challenge.starts_at) > now) return 'upcoming'
+    if (challenge.ends_at && new Date(challenge.ends_at) < now) return 'ended'
+    return 'active'
+  }
+
+  const filteredChallenges = challenges.filter(challenge => {
+    if (challengeFilter === 'all') return true
+    if (challengeFilter === 'active') return challenge.is_active && getChallengeStatus(challenge) === 'active'
+    if (challengeFilter === 'inactive') return !challenge.is_active
+    if (challengeFilter === 'upcoming') return getChallengeStatus(challenge) === 'upcoming'
+    if (challengeFilter === 'ended') return getChallengeStatus(challenge) === 'ended'
+    return true
+  })
 
   function addPollOption() {
     setNewPollOptions([...newPollOptions, ''])
@@ -3268,9 +3509,13 @@ export default function Dashboard() {
                       {primaryVentLink && (
                         <button 
                           className="btn btn-secondary"
-                          onClick={() => setShowCreateChallenge(!showCreateChallenge)}
+                          onClick={() => {
+                            setShowCreateChallenge(!showCreateChallenge)
+                            setEditingChallenge(null)
+                            cancelEditChallenge()
+                          }}
                         >
-                          {showCreateChallenge ? 'Cancel' : '+ New Challenge'}
+                          {showCreateChallenge || editingChallenge ? 'Cancel' : '+ New Challenge'}
                         </button>
                       )}
                     </div>
@@ -3370,127 +3615,361 @@ export default function Dashboard() {
                           {creatingChallenge ? 'Creating...' : 'Create Challenge'}
                         </button>
                       </div>
+                    ) : editingChallenge ? (
+                      <div className="poll-edit-form">
+                        <h3 style={{ marginBottom: '20px' }}>Edit Challenge</h3>
+                        <div className="form-group">
+                          <label>Challenge Title *</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Creative Writing Contest"
+                            value={editChallengeTitle}
+                            onChange={(e) => setEditChallengeTitle(e.target.value)}
+                            disabled={updatingChallenge}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Challenge Type *</label>
+                          <select
+                            className="select"
+                            value={editChallengeType}
+                            onChange={(e) => setEditChallengeType(e.target.value as 'contest' | 'giveaway' | 'challenge')}
+                            disabled={updatingChallenge}
+                          >
+                            <option value="challenge">Challenge</option>
+                            <option value="contest">Contest</option>
+                            <option value="giveaway">Giveaway</option>
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label>Description (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="What is this challenge about?"
+                            value={editChallengeDescription}
+                            onChange={(e) => setEditChallengeDescription(e.target.value)}
+                            disabled={updatingChallenge}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Prize Description (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="What can participants win?"
+                            value={editChallengePrize}
+                            onChange={(e) => setEditChallengePrize(e.target.value)}
+                            disabled={updatingChallenge}
+                            rows={2}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Rules (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="Challenge rules and guidelines..."
+                            value={editChallengeRules}
+                            onChange={(e) => setEditChallengeRules(e.target.value)}
+                            disabled={updatingChallenge}
+                            rows={3}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                          <div className="form-group">
+                            <label>Start Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={editChallengeStartsAt}
+                              onChange={(e) => setEditChallengeStartsAt(e.target.value)}
+                              disabled={updatingChallenge}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>End Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={editChallengeEndsAt}
+                              onChange={(e) => setEditChallengeEndsAt(e.target.value)}
+                              disabled={updatingChallenge}
+                            />
+                          </div>
+                        </div>
+                        <div className="poll-edit-footer">
+                          <button
+                            onClick={cancelEditChallenge}
+                            className="btn btn-secondary"
+                            disabled={updatingChallenge}
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={saveChallengeEdit}
+                            className="btn"
+                            disabled={updatingChallenge || !editChallengeTitle.trim()}
+                          >
+                            {updatingChallenge ? 'Saving...' : 'Save Changes'}
+                          </button>
+                        </div>
+                      </div>
                     ) : challenges.length > 0 ? (
-                      <div className="polls-list">
-                        {challenges.map((challenge) => {
-                          const submissions = challengeSubmissions[challenge.id] || []
-                          const winnerCount = submissions.filter(s => s.is_winner).length
-                          return (
-                            <div key={challenge.id} className={`poll-card ${!challenge.is_active ? 'inactive' : ''}`}>
-                              <div className="poll-card-header">
-                                <div style={{ flex: 1 }}>
-                                  <h3>
-                                    {challenge.challenge_type === 'contest' && '🏆 '}
-                                    {challenge.challenge_type === 'giveaway' && '🎁 '}
-                                    {challenge.title}
-                                  </h3>
-                                  {challenge.description && (
-                                    <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
-                                      {challenge.description}
-                                    </p>
-                                  )}
-                                  {challenge.prize_description && (
-                                    <p style={{ marginTop: '8px', color: 'var(--accent)', fontSize: '14px', fontWeight: 500 }}>
-                                      🎁 Prize: {challenge.prize_description}
-                                    </p>
-                                  )}
-                                </div>
-                                <div className="poll-actions">
-                                  <button
-                                    onClick={() => toggleChallengeActive(challenge.id, challenge.is_active)}
-                                    className="btn btn-small btn-secondary"
-                                  >
-                                    {challenge.is_active ? '⏸️' : '▶️'}
-                                  </button>
-                                  <button
-                                    onClick={() => setSelectedChallenge(selectedChallenge?.id === challenge.id ? null : challenge)}
-                                    className="btn btn-small"
-                                  >
-                                    {selectedChallenge?.id === challenge.id ? '👁️ Hide' : '📝 Submissions'}
-                                  </button>
-                                  <button
-                                    onClick={() => deleteChallenge(challenge.id)}
-                                    className="btn btn-small btn-danger"
-                                  >
-                                    🗑️
-                                  </button>
-                                </div>
-                              </div>
-                              <div className="poll-stats">
-                                <span className="poll-stat">📝 {submissions.length} submissions</span>
-                                {winnerCount > 0 && (
-                                  <span className="poll-stat" style={{ color: 'var(--accent)' }}>
-                                    🏆 {winnerCount} winner{winnerCount > 1 ? 's' : ''}
-                                  </span>
-                                )}
-                                <span className="poll-stat">{challenge.is_active ? '✅ Active' : '⏸️ Inactive'}</span>
-                                {challenge.starts_at && (
-                                  <span className="poll-stat">
-                                    📅 Starts {new Date(challenge.starts_at).toLocaleDateString()}
-                                  </span>
-                                )}
-                                {challenge.ends_at && (
-                                  <span className="poll-stat">
-                                    ⏰ Ends {new Date(challenge.ends_at).toLocaleDateString()}
-                                  </span>
-                                )}
-                              </div>
-                              {selectedChallenge?.id === challenge.id && (
-                                <div className="poll-results" style={{ marginTop: '20px' }}>
-                                  <h4>Submissions ({submissions.length})</h4>
-                                  {submissions.length === 0 ? (
-                                    <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
-                                      No submissions yet
-                                    </p>
-                                  ) : (
-                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
-                                      {submissions.map((submission) => (
-                                        <div key={submission.id} style={{ 
-                                          padding: '16px', 
-                                          background: submission.is_winner ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
-                                          borderRadius: '8px',
-                                          border: submission.is_winner ? '2px solid var(--success)' : '1px solid var(--border)'
-                                        }}>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
-                                            <p style={{ fontWeight: 500, flex: 1 }}>{submission.submission_text}</p>
-                                            {submission.is_winner && (
-                                              <span style={{ 
-                                                background: 'var(--success)', 
-                                                color: 'white', 
-                                                padding: '4px 8px', 
-                                                borderRadius: '4px',
-                                                fontSize: '12px',
-                                                fontWeight: 600,
-                                                marginLeft: '12px'
-                                              }}>
-                                                🏆 Winner
-                                              </span>
-                                            )}
-                                          </div>
-                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
-                                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                              {new Date(submission.created_at).toLocaleString()}
-                                            </span>
-                                            <button
-                                              onClick={() => markSubmissionWinner(submission.id, challenge.id, !submission.is_winner)}
-                                              className="btn btn-small"
-                                              style={{ 
-                                                background: submission.is_winner ? 'var(--bg-secondary)' : 'var(--success)',
-                                                color: submission.is_winner ? 'var(--text-primary)' : 'white'
-                                              }}
-                                            >
-                                              {submission.is_winner ? 'Remove Winner' : 'Mark as Winner'}
-                                            </button>
-                                          </div>
-                                        </div>
-                                      ))}
+                      <div>
+                        {/* Filter Buttons */}
+                        <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
+                          <button
+                            className={`btn btn-small ${challengeFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setChallengeFilter('all')}
+                          >
+                            All ({challenges.length})
+                          </button>
+                          <button
+                            className={`btn btn-small ${challengeFilter === 'active' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setChallengeFilter('active')}
+                          >
+                            Active ({challenges.filter(c => c.is_active && getChallengeStatus(c) === 'active').length})
+                          </button>
+                          <button
+                            className={`btn btn-small ${challengeFilter === 'upcoming' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setChallengeFilter('upcoming')}
+                          >
+                            Upcoming ({challenges.filter(c => getChallengeStatus(c) === 'upcoming').length})
+                          </button>
+                          <button
+                            className={`btn btn-small ${challengeFilter === 'ended' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setChallengeFilter('ended')}
+                          >
+                            Ended ({challenges.filter(c => getChallengeStatus(c) === 'ended').length})
+                          </button>
+                          <button
+                            className={`btn btn-small ${challengeFilter === 'inactive' ? 'btn-primary' : 'btn-secondary'}`}
+                            onClick={() => setChallengeFilter('inactive')}
+                          >
+                            Inactive ({challenges.filter(c => !c.is_active).length})
+                          </button>
+                        </div>
+
+                        {filteredChallenges.length > 0 ? (
+                        <div className="polls-list">
+                          {filteredChallenges.map((challenge) => {
+                            const submissions = challengeSubmissions[challenge.id] || []
+                            const winnerCount = submissions.filter(s => s.is_winner).length
+                            const status = getChallengeStatus(challenge)
+                            const submissionFilterForChallenge = submissionFilter[challenge.id] || 'all'
+                            const filteredSubmissions = submissions.filter(s => {
+                              if (submissionFilterForChallenge === 'winners') return s.is_winner
+                              if (submissionFilterForChallenge === 'non-winners') return !s.is_winner
+                              return true
+                            })
+
+                            return (
+                              <div key={challenge.id} className={`poll-card ${!challenge.is_active ? 'inactive' : ''}`} style={{
+                                borderLeft: status === 'active' ? '4px solid var(--success)' : 
+                                           status === 'upcoming' ? '4px solid var(--accent)' :
+                                           status === 'ended' ? '4px solid var(--text-secondary)' : '4px solid var(--border)'
+                              }}>
+                                <div className="poll-card-header">
+                                  <div style={{ flex: 1 }}>
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                      <h3>
+                                        {challenge.challenge_type === 'contest' && '🏆 '}
+                                        {challenge.challenge_type === 'giveaway' && '🎁 '}
+                                        {challenge.challenge_type === 'challenge' && '💪 '}
+                                        {challenge.title}
+                                      </h3>
+                                      <span style={{
+                                        padding: '4px 8px',
+                                        borderRadius: '4px',
+                                        fontSize: '11px',
+                                        fontWeight: 600,
+                                        background: status === 'active' ? 'rgba(16, 185, 129, 0.1)' :
+                                                   status === 'upcoming' ? 'rgba(139, 92, 246, 0.1)' :
+                                                   status === 'ended' ? 'rgba(107, 114, 128, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                                        color: status === 'active' ? 'var(--success)' :
+                                               status === 'upcoming' ? 'var(--accent)' :
+                                               status === 'ended' ? 'var(--text-secondary)' : 'var(--text-secondary)'
+                                      }}>
+                                        {status === 'active' ? '🟢 Active' :
+                                         status === 'upcoming' ? '🔵 Upcoming' :
+                                         status === 'ended' ? '⚫ Ended' : '⚪ Inactive'}
+                                      </span>
                                     </div>
+                                    {challenge.description && (
+                                      <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                        {challenge.description}
+                                      </p>
+                                    )}
+                                    {challenge.prize_description && (
+                                      <p style={{ marginTop: '8px', color: 'var(--accent)', fontSize: '14px', fontWeight: 500 }}>
+                                        🎁 Prize: {challenge.prize_description}
+                                      </p>
+                                    )}
+                                  </div>
+                                  <div className="poll-actions">
+                                    <button
+                                      onClick={() => toggleChallengeActive(challenge.id, challenge.is_active)}
+                                      className="btn btn-small btn-secondary"
+                                      title={challenge.is_active ? 'Pause' : 'Activate'}
+                                    >
+                                      {challenge.is_active ? '⏸️' : '▶️'}
+                                    </button>
+                                    <button
+                                      onClick={() => startEditChallenge(challenge)}
+                                      className="btn btn-small"
+                                      title="Edit"
+                                    >
+                                      ✏️
+                                    </button>
+                                    <button
+                                      onClick={() => duplicateChallenge(challenge)}
+                                      className="btn btn-small"
+                                      title="Duplicate"
+                                    >
+                                      📋
+                                    </button>
+                                    <button
+                                      onClick={() => setSelectedChallenge(selectedChallenge?.id === challenge.id ? null : challenge)}
+                                      className="btn btn-small"
+                                      title="View Submissions"
+                                    >
+                                      {selectedChallenge?.id === challenge.id ? '👁️ Hide' : '📝 Submissions'}
+                                    </button>
+                                    <button
+                                      onClick={() => exportChallengeSubmissions(challenge.id)}
+                                      className="btn btn-small"
+                                      title="Export CSV"
+                                      disabled={submissions.length === 0}
+                                    >
+                                      📥
+                                    </button>
+                                    <button
+                                      onClick={() => deleteChallenge(challenge.id)}
+                                      className="btn btn-small btn-danger"
+                                      title="Delete"
+                                    >
+                                      🗑️
+                                    </button>
+                                  </div>
+                                </div>
+                                <div className="poll-stats">
+                                  <span className="poll-stat">📝 {submissions.length} submission{submissions.length !== 1 ? 's' : ''}</span>
+                                  {winnerCount > 0 && (
+                                    <span className="poll-stat" style={{ color: 'var(--accent)' }}>
+                                      🏆 {winnerCount} winner{winnerCount > 1 ? 's' : ''}
+                                    </span>
+                                  )}
+                                  {challenge.starts_at && (
+                                    <span className="poll-stat">
+                                      📅 Starts {new Date(challenge.starts_at).toLocaleDateString()}
+                                    </span>
+                                  )}
+                                  {challenge.ends_at && (
+                                    <span className="poll-stat">
+                                      ⏰ Ends {new Date(challenge.ends_at).toLocaleDateString()}
+                                    </span>
                                   )}
                                 </div>
-                              )}
-                            </div>
-                          )
-                        })}
+                                {challenge.rules && (
+                                  <div style={{ 
+                                    marginTop: '12px', 
+                                    padding: '12px', 
+                                    background: 'var(--bg-secondary)', 
+                                    borderRadius: '6px',
+                                    fontSize: '13px'
+                                  }}>
+                                    <strong>Rules:</strong>
+                                    <p style={{ marginTop: '6px', whiteSpace: 'pre-line' }}>{challenge.rules}</p>
+                                  </div>
+                                )}
+                                {selectedChallenge?.id === challenge.id && (
+                                  <div className="poll-results" style={{ marginTop: '20px' }}>
+                                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                      <h4>Submissions ({submissions.length})</h4>
+                                      {submissions.length > 0 && (
+                                        <div style={{ display: 'flex', gap: '8px' }}>
+                                          <button
+                                            className={`btn btn-small ${submissionFilterForChallenge === 'all' ? 'btn-primary' : 'btn-secondary'}`}
+                                            onClick={() => setSubmissionFilter(prev => ({ ...prev, [challenge.id]: 'all' }))}
+                                          >
+                                            All
+                                          </button>
+                                          <button
+                                            className={`btn btn-small ${submissionFilterForChallenge === 'winners' ? 'btn-primary' : 'btn-secondary'}`}
+                                            onClick={() => setSubmissionFilter(prev => ({ ...prev, [challenge.id]: 'winners' }))}
+                                          >
+                                            Winners ({winnerCount})
+                                          </button>
+                                          <button
+                                            className={`btn btn-small ${submissionFilterForChallenge === 'non-winners' ? 'btn-primary' : 'btn-secondary'}`}
+                                            onClick={() => setSubmissionFilter(prev => ({ ...prev, [challenge.id]: 'non-winners' }))}
+                                          >
+                                            Others ({submissions.length - winnerCount})
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                    {filteredSubmissions.length === 0 ? (
+                                      <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+                                        {submissions.length === 0 ? 'No submissions yet' : 'No submissions match this filter'}
+                                      </p>
+                                    ) : (
+                                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
+                                        {filteredSubmissions.map((submission) => (
+                                          <div key={submission.id} style={{ 
+                                            padding: '16px', 
+                                            background: submission.is_winner ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
+                                            borderRadius: '8px',
+                                            border: submission.is_winner ? '2px solid var(--success)' : '1px solid var(--border)'
+                                          }}>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'start', marginBottom: '8px' }}>
+                                              <p style={{ fontWeight: 500, flex: 1, whiteSpace: 'pre-wrap' }}>{submission.submission_text}</p>
+                                              {submission.is_winner && (
+                                                <span style={{ 
+                                                  background: 'var(--success)', 
+                                                  color: 'white', 
+                                                  padding: '4px 8px', 
+                                                  borderRadius: '4px',
+                                                  fontSize: '12px',
+                                                  fontWeight: 600,
+                                                  marginLeft: '12px'
+                                                }}>
+                                                  🏆 Winner
+                                                </span>
+                                              )}
+                                            </div>
+                                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '12px' }}>
+                                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                                {new Date(submission.created_at).toLocaleString()}
+                                              </span>
+                                              <button
+                                                onClick={() => markSubmissionWinner(submission.id, challenge.id, !submission.is_winner)}
+                                                className="btn btn-small"
+                                                style={{ 
+                                                  background: submission.is_winner ? 'var(--bg-secondary)' : 'var(--success)',
+                                                  color: submission.is_winner ? 'var(--text-primary)' : 'white'
+                                                }}
+                                              >
+                                                {submission.is_winner ? 'Remove Winner' : 'Mark as Winner'}
+                                              </button>
+                                            </div>
+                                          </div>
+                                        ))}
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
+                            )
+                          })}
+                          </div>
+                        ) : (
+                          <div className="empty-state-compact">
+                            <div className="empty-icon">🏆</div>
+                            <p>No challenges match this filter</p>
+                            <p className="empty-hint">Try selecting a different filter or create a new challenge</p>
+                          </div>
+                        )}
                       </div>
                     ) : (
                       <div className="empty-state-compact">

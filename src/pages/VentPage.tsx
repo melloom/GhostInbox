@@ -179,6 +179,100 @@ export default function VentPage() {
     fetchVentLink()
   }, [slug])
 
+  // Set up real-time subscriptions for challenges and submissions
+  useEffect(() => {
+    if (!ventLink) return
+
+    // Subscribe to challenge changes
+    const challengeChannel = supabase
+      .channel(`challenges_${ventLink.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'challenges',
+          filter: `vent_link_id=eq.${ventLink.id}`
+        },
+        async (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const challenge = payload.new as Challenge
+            if (challenge.is_active) {
+              // Fetch updated challenge with submissions
+              const { data: submissionsData } = await supabase
+                .from('challenge_submissions')
+                .select('*')
+                .eq('challenge_id', challenge.id)
+                .order('created_at', { ascending: false })
+              
+              setActiveChallenges((prev) => {
+                const existing = prev.find(c => c.id === challenge.id)
+                if (existing) {
+                  return prev.map(c => c.id === challenge.id ? challenge : c)
+                } else {
+                  return [...prev, challenge]
+                }
+              })
+              
+              setChallengeSubmissions((prev) => ({
+                ...prev,
+                [challenge.id]: submissionsData || []
+              }))
+            } else {
+              // Remove inactive challenge
+              setActiveChallenges((prev) => prev.filter(c => c.id !== challenge.id))
+            }
+          } else if (payload.eventType === 'DELETE') {
+            setActiveChallenges((prev) => prev.filter(c => c.id !== payload.old.id))
+            setChallengeSubmissions((prev) => {
+              const updated = { ...prev }
+              delete updated[payload.old.id]
+              return updated
+            })
+          }
+        }
+      )
+      .subscribe()
+
+    // Subscribe to challenge submission changes
+    const submissionChannel = supabase
+      .channel(`challenge_submissions_${ventLink.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'challenge_submissions'
+        },
+        async (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const submission = payload.new as ChallengeSubmission
+            // Check if this submission belongs to an active challenge
+            const challenge = activeChallenges.find(c => c.id === submission.challenge_id)
+            if (challenge) {
+              // Fetch all submissions for this challenge
+              const { data: submissionsData } = await supabase
+                .from('challenge_submissions')
+                .select('*')
+                .eq('challenge_id', submission.challenge_id)
+                .order('created_at', { ascending: false })
+              
+              setChallengeSubmissions((prev) => ({
+                ...prev,
+                [submission.challenge_id]: submissionsData || []
+              }))
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    return () => {
+      challengeChannel.unsubscribe()
+      submissionChannel.unsubscribe()
+    }
+  }, [ventLink, activeChallenges])
+
   // Set up real-time subscription for poll votes
   useEffect(() => {
     if (!ventLink || activePolls.length === 0) return
@@ -734,87 +828,180 @@ export default function VentPage() {
             {activeChallenges.map((challenge) => {
               const submissions = challengeSubmissions[challenge.id] || []
               const winners = submissions.filter(s => s.is_winner)
+              const now = new Date()
+              const isUpcoming = challenge.starts_at && new Date(challenge.starts_at) > now
+              const isEnded = challenge.ends_at && new Date(challenge.ends_at) < now
+              const canSubmit = !isUpcoming && !isEnded
+
               return (
-                <div key={challenge.id} className="poll-section">
-                  <h3 className="poll-question">
-                    {challenge.challenge_type === 'contest' && '🏆 '}
-                    {challenge.challenge_type === 'giveaway' && '🎁 '}
-                    {challenge.title}
-                  </h3>
+                <div key={challenge.id} className="poll-section" style={{
+                  borderLeft: isUpcoming ? '4px solid var(--accent)' :
+                               isEnded ? '4px solid var(--text-secondary)' :
+                               '4px solid var(--success)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                    <h3 className="poll-question" style={{ margin: 0, flex: 1 }}>
+                      {challenge.challenge_type === 'contest' && '🏆 '}
+                      {challenge.challenge_type === 'giveaway' && '🎁 '}
+                      {challenge.challenge_type === 'challenge' && '💪 '}
+                      {challenge.title}
+                    </h3>
+                    <span style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      background: isUpcoming ? 'rgba(139, 92, 246, 0.1)' :
+                                   isEnded ? 'rgba(107, 114, 128, 0.1)' :
+                                   'rgba(16, 185, 129, 0.1)',
+                      color: isUpcoming ? 'var(--accent)' :
+                             isEnded ? 'var(--text-secondary)' :
+                             'var(--success)'
+                    }}>
+                      {isUpcoming ? '🔵 Upcoming' :
+                       isEnded ? '⚫ Ended' :
+                       '🟢 Active'}
+                    </span>
+                  </div>
+                  
                   {challenge.description && (
-                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '12px' }}>
+                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
                       {challenge.description}
                     </p>
                   )}
+                  
                   {challenge.prize_description && (
                     <div style={{ 
                       textAlign: 'center', 
-                      padding: '12px', 
-                      background: 'rgba(139, 92, 246, 0.1)', 
-                      borderRadius: '8px',
+                      padding: '14px', 
+                      background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%)', 
+                      borderRadius: '10px',
                       marginBottom: '20px',
-                      border: '1px solid var(--accent)'
+                      border: '2px solid var(--accent)'
                     }}>
-                      <strong style={{ color: 'var(--accent)' }}>🎁 Prize: {challenge.prize_description}</strong>
-                    </div>
-                  )}
-                  {challenge.rules && (
-                    <div style={{ 
-                      padding: '12px', 
-                      background: 'var(--bg-secondary)', 
-                      borderRadius: '8px',
-                      marginBottom: '20px',
-                      fontSize: '14px'
-                    }}>
-                      <strong>Rules:</strong>
-                      <p style={{ marginTop: '8px', whiteSpace: 'pre-line' }}>{challenge.rules}</p>
+                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>🎁</div>
+                      <strong style={{ color: 'var(--accent)', fontSize: '16px' }}>Prize: {challenge.prize_description}</strong>
                     </div>
                   )}
                   
-                  <div style={{ marginBottom: '20px' }}>
-                    <textarea
-                      className="textarea"
-                      placeholder="Enter your submission..."
-                      value={submissionTexts[challenge.id] || ''}
-                      onChange={(e) => setSubmissionTexts(prev => ({ ...prev, [challenge.id]: e.target.value }))}
-                      rows={5}
-                      style={{ marginBottom: '12px' }}
-                    />
-                    <button
-                      onClick={() => submitChallenge(challenge.id)}
-                      className="btn btn-primary"
-                      disabled={submittingChallenge === challenge.id || !(submissionTexts[challenge.id] || '').trim()}
-                      style={{ width: '100%' }}
-                    >
-                      {submittingChallenge === challenge.id ? 'Submitting...' : 'Submit Entry'}
-                    </button>
-                  </div>
+                  {challenge.rules && (
+                    <div style={{ 
+                      padding: '14px', 
+                      background: 'var(--bg-secondary)', 
+                      borderRadius: '8px',
+                      marginBottom: '20px',
+                      fontSize: '14px',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <strong style={{ display: 'block', marginBottom: '8px' }}>📋 Rules:</strong>
+                      <p style={{ margin: 0, whiteSpace: 'pre-line', lineHeight: '1.6' }}>{challenge.rules}</p>
+                    </div>
+                  )}
+
+                  {(challenge.starts_at || challenge.ends_at) && (
+                    <div style={{ 
+                      display: 'flex', 
+                      gap: '16px', 
+                      marginBottom: '20px',
+                      flexWrap: 'wrap',
+                      justifyContent: 'center'
+                    }}>
+                      {challenge.starts_at && (
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          📅 Starts: {new Date(challenge.starts_at).toLocaleString()}
+                        </div>
+                      )}
+                      {challenge.ends_at && (
+                        <div style={{ fontSize: '13px', color: 'var(--text-secondary)' }}>
+                          ⏰ Ends: {new Date(challenge.ends_at).toLocaleString()}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {canSubmit ? (
+                    <div style={{ marginBottom: '20px' }}>
+                      <textarea
+                        className="textarea"
+                        placeholder="Enter your submission..."
+                        value={submissionTexts[challenge.id] || ''}
+                        onChange={(e) => setSubmissionTexts(prev => ({ ...prev, [challenge.id]: e.target.value }))}
+                        rows={5}
+                        style={{ marginBottom: '12px' }}
+                      />
+                      <button
+                        onClick={() => submitChallenge(challenge.id)}
+                        className="btn btn-primary"
+                        disabled={submittingChallenge === challenge.id || !(submissionTexts[challenge.id] || '').trim()}
+                        style={{ width: '100%' }}
+                      >
+                        {submittingChallenge === challenge.id ? 'Submitting...' : 'Submit Entry'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: '16px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '8px',
+                      marginBottom: '20px',
+                      textAlign: 'center',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                        {isUpcoming ? '⏳ This challenge hasn\'t started yet' : '🔒 This challenge has ended'}
+                      </p>
+                    </div>
+                  )}
 
                   {submissions.length > 0 && (
                     <div className="poll-results">
                       <h4 style={{ marginBottom: '16px', textAlign: 'center' }}>
                         Submissions ({submissions.length})
-                        {winners.length > 0 && ` • ${winners.length} Winner${winners.length > 1 ? 's' : ''}`}
+                        {winners.length > 0 && (
+                          <span style={{ color: 'var(--accent)', marginLeft: '8px' }}>
+                            • {winners.length} Winner{winners.length > 1 ? 's' : ''}
+                          </span>
+                        )}
                       </h4>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                         {submissions.map((submission) => (
                           <div key={submission.id} style={{ 
-                            padding: '14px', 
+                            padding: '16px', 
                             background: submission.is_winner ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
-                            borderRadius: '8px',
-                            border: submission.is_winner ? '2px solid var(--success)' : '1px solid var(--border)'
+                            borderRadius: '10px',
+                            border: submission.is_winner ? '2px solid var(--success)' : '1px solid var(--border)',
+                            transition: 'all 0.2s'
                           }}>
                             <div style={{ display: 'flex', alignItems: 'start', gap: '12px' }}>
                               {submission.is_winner && (
-                                <span style={{ fontSize: '20px' }}>🏆</span>
+                                <span style={{ fontSize: '24px', lineHeight: 1 }}>🏆</span>
                               )}
                               <div style={{ flex: 1 }}>
-                                <p style={{ fontWeight: submission.is_winner ? 600 : 500, marginBottom: '6px' }}>
+                                <p style={{ 
+                                  fontWeight: submission.is_winner ? 600 : 500, 
+                                  marginBottom: '8px',
+                                  lineHeight: '1.6',
+                                  whiteSpace: 'pre-wrap'
+                                }}>
                                   {submission.submission_text}
                                 </p>
-                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
-                                  {new Date(submission.created_at).toLocaleString()}
-                                </span>
+                                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px' }}>
+                                  <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                    {new Date(submission.created_at).toLocaleString()}
+                                  </span>
+                                  {submission.is_winner && (
+                                    <span style={{
+                                      padding: '4px 10px',
+                                      background: 'var(--success)',
+                                      color: 'white',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 600
+                                    }}>
+                                      WINNER
+                                    </span>
+                                  )}
+                                </div>
                               </div>
                             </div>
                           </div>
