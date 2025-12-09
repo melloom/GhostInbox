@@ -448,6 +448,8 @@ CREATE POLICY "Raffle entries: public can select"
 
 -- Community Votes policies (similar to polls)
 DROP POLICY IF EXISTS "Community votes: owners can manage" ON public.community_votes;
+DROP POLICY IF EXISTS "Community votes: public can select active" ON public.community_votes;
+
 CREATE POLICY "Community votes: owners can manage"
   ON public.community_votes
   FOR ALL
@@ -465,6 +467,11 @@ CREATE POLICY "Community votes: owners can manage"
         AND vent_links.owner_id = auth.uid()
     )
   );
+
+CREATE POLICY "Community votes: public can select active"
+  ON public.community_votes
+  FOR SELECT
+  USING (is_active = true);
 
 DROP POLICY IF EXISTS "Vote options: owners can manage, public can select active" ON public.vote_options;
 DROP POLICY IF EXISTS "Vote options: owners can manage" ON public.vote_options;
@@ -503,12 +510,24 @@ CREATE POLICY "Vote options: public can select active"
 
 DROP POLICY IF EXISTS "Vote responses: public can insert, owners can select" ON public.vote_responses;
 DROP POLICY IF EXISTS "Vote responses: public can insert" ON public.vote_responses;
+DROP POLICY IF EXISTS "Vote responses: public can select" ON public.vote_responses;
 DROP POLICY IF EXISTS "Vote responses: owners can select" ON public.vote_responses;
 
 CREATE POLICY "Vote responses: public can insert"
   ON public.vote_responses
   FOR INSERT
   WITH CHECK (
+    EXISTS(
+      SELECT 1 FROM public.community_votes
+      WHERE community_votes.id = vote_responses.vote_id
+        AND community_votes.is_active = true
+    )
+  );
+
+CREATE POLICY "Vote responses: public can select"
+  ON public.vote_responses
+  FOR SELECT
+  USING (
     EXISTS(
       SELECT 1 FROM public.community_votes
       WHERE community_votes.id = vote_responses.vote_id

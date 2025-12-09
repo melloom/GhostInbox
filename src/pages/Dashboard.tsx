@@ -3504,7 +3504,7 @@ export default function Dashboard() {
                     <div key={poll.id} className={`poll-card ${!poll.is_active ? 'inactive' : ''}`}>
                       <div className="poll-card-header">
                         <div style={{ flex: 1 }}>
-                          <h3>{poll.question}</h3>
+                        <h3>{poll.question}</h3>
                           {poll.description && (
                             <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
                               {poll.description}
@@ -3628,7 +3628,7 @@ export default function Dashboard() {
                     <div className="hub-section-header">
                       <h3>Q&A / AMA Sessions</h3>
                       {primaryVentLink && (
-                        <button 
+                  <button
                           className="btn btn-secondary"
                           onClick={() => setShowCreateQASession(!showCreateQASession)}
                         >
@@ -3691,11 +3691,11 @@ export default function Dashboard() {
                         </div>
                         <button
                           onClick={createQASession}
-                          className="btn"
+                    className="btn"
                           disabled={creatingQASession || !newQASessionTitle.trim()}
-                        >
+                  >
                           {creatingQASession ? 'Creating...' : 'Create Session'}
-                        </button>
+                  </button>
                       </div>
                     ) : qaSessions.length > 0 ? (
                       <div className="polls-list">
@@ -3711,8 +3711,8 @@ export default function Dashboard() {
                                     <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
                                       {session.description}
                                     </p>
-                                  )}
-                                </div>
+                )}
+              </div>
                                 <div className="poll-actions">
                                   <button
                                     onClick={() => toggleQASessionActive(session.id, session.is_active)}
@@ -3858,18 +3858,18 @@ export default function Dashboard() {
                       </div>
                     ) : showCreateChallenge ? (
                       <div className="create-poll-form">
-                        <div className="form-group">
+                  <div className="form-group">
                           <label>Challenge Title *</label>
-                          <input
-                            type="text"
-                            className="input"
+                    <input
+                      type="text"
+                      className="input"
                             placeholder="e.g., Creative Writing Contest"
                             value={newChallengeTitle}
                             onChange={(e) => setNewChallengeTitle(e.target.value)}
                             disabled={creatingChallenge}
                           />
-                        </div>
-                        <div className="form-group">
+                  </div>
+                  <div className="form-group">
                           <label>Challenge Type *</label>
                           <select
                             className="select"
@@ -3918,7 +3918,7 @@ export default function Dashboard() {
                         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
                           <div className="form-group">
                             <label>Start Date (optional)</label>
-                            <input
+                    <input
                               type="datetime-local"
                               className="input"
                               value={newChallengeStartsAt}
@@ -3951,14 +3951,14 @@ export default function Dashboard() {
                         <div className="form-group">
                           <label>Challenge Title *</label>
                           <input
-                            type="text"
-                            className="input"
+                      type="text"
+                      className="input"
                             placeholder="e.g., Creative Writing Contest"
                             value={editChallengeTitle}
                             onChange={(e) => setEditChallengeTitle(e.target.value)}
                             disabled={updatingChallenge}
-                          />
-                        </div>
+                    />
+                  </div>
                         <div className="form-group">
                           <label>Challenge Type *</label>
                           <select
@@ -4028,7 +4028,7 @@ export default function Dashboard() {
                           </div>
                         </div>
                         <div className="poll-edit-footer">
-                          <button
+                  <button
                             onClick={cancelEditChallenge}
                             className="btn btn-secondary"
                             disabled={updatingChallenge}
@@ -4037,18 +4037,18 @@ export default function Dashboard() {
                           </button>
                           <button
                             onClick={saveChallengeEdit}
-                            className="btn"
+                    className="btn"
                             disabled={updatingChallenge || !editChallengeTitle.trim()}
-                          >
+                  >
                             {updatingChallenge ? 'Saving...' : 'Save Changes'}
-                          </button>
-                        </div>
-                      </div>
+                  </button>
+                </div>
+                    </div>
                     ) : challenges.length > 0 ? (
                       <div>
                         {/* Filter Buttons */}
                         <div style={{ display: 'flex', gap: '8px', marginBottom: '20px', flexWrap: 'wrap' }}>
-                          <button
+                    <button
                             className={`btn btn-small ${challengeFilter === 'all' ? 'btn-primary' : 'btn-secondary'}`}
                             onClick={() => setChallengeFilter('all')}
                           >
@@ -4077,8 +4077,8 @@ export default function Dashboard() {
                             onClick={() => setChallengeFilter('inactive')}
                           >
                             Inactive ({challenges.filter(c => !c.is_active).length})
-                          </button>
-                        </div>
+                    </button>
+                  </div>
 
                         {filteredChallenges.length > 0 ? (
                         <div className="polls-list">
@@ -4135,7 +4135,7 @@ export default function Dashboard() {
                                         🎁 Prize: {challenge.prize_description}
                                       </p>
                                     )}
-                                  </div>
+                  </div>
                                   <div className="poll-actions">
                                     <button
                                       onClick={() => toggleChallengeActive(challenge.id, challenge.is_active)}
@@ -4180,7 +4180,7 @@ export default function Dashboard() {
                                     >
                                       🗑️
                                     </button>
-                                  </div>
+                </div>
                                 </div>
                                 <div className="poll-stats">
                                   <span className="poll-stat">📝 {submissions.length} submission{submissions.length !== 1 ? 's' : ''}</span>
@@ -4285,9 +4285,9 @@ export default function Dashboard() {
                                             </div>
                                           </div>
                                         ))}
-                                      </div>
-                                    )}
-                                  </div>
+                </div>
+              )}
+            </div>
                                 )}
                               </div>
                             )
@@ -4317,6 +4317,287 @@ export default function Dashboard() {
                   </div>
                 )}
 
+                {/* Raffles View */}
+                {hubView === 'raffles' && (
+                  <div className="hub-raffles-view">
+                    <div className="hub-section-header">
+                      <h3>Raffles</h3>
+                      {primaryVentLink && (
+                        <button 
+                          className="btn btn-secondary"
+                          onClick={() => setShowCreateRaffle(!showCreateRaffle)}
+                        >
+                          {showCreateRaffle ? 'Cancel' : '+ New Raffle'}
+                        </button>
+                      )}
+                        </div>
+
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🎲</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                      </div>
+                    ) : showCreateRaffle ? (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label>Raffle Title *</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Monthly Giveaway"
+                            value={newRaffleTitle}
+                            onChange={(e) => setNewRaffleTitle(e.target.value)}
+                            disabled={creatingRaffle}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Description (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="What is this raffle about?"
+                            value={newRaffleDescription}
+                            onChange={(e) => setNewRaffleDescription(e.target.value)}
+                            disabled={creatingRaffle}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Prize Description *</label>
+                          <textarea
+                            className="input"
+                            placeholder="What can participants win?"
+                            value={newRafflePrize}
+                            onChange={(e) => setNewRafflePrize(e.target.value)}
+                            disabled={creatingRaffle}
+                            rows={2}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Number of Winners *</label>
+                          <input
+                            type="number"
+                            className="input"
+                            placeholder="1"
+                            value={newRaffleWinnerCount}
+                            onChange={(e) => setNewRaffleWinnerCount(e.target.value)}
+                            disabled={creatingRaffle}
+                            min="1"
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: '16px' }}>
+                          <div className="form-group">
+                            <label>Start Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={newRaffleStartsAt}
+                              onChange={(e) => setNewRaffleStartsAt(e.target.value)}
+                              disabled={creatingRaffle}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>End Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={newRaffleEndsAt}
+                              onChange={(e) => setNewRaffleEndsAt(e.target.value)}
+                              disabled={creatingRaffle}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>Draw Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={newRaffleDrawAt}
+                              onChange={(e) => setNewRaffleDrawAt(e.target.value)}
+                              disabled={creatingRaffle}
+                            />
+                          </div>
+                        </div>
+                        <button
+                          onClick={createRaffle}
+                          className="btn"
+                          disabled={creatingRaffle || !newRaffleTitle.trim() || !newRafflePrize.trim()}
+                        >
+                          {creatingRaffle ? 'Creating...' : 'Create Raffle'}
+                        </button>
+                      </div>
+                    ) : raffles.length > 0 ? (
+                      <div className="polls-list">
+                        {raffles.map((raffle) => {
+                          const entries = raffleEntries[raffle.id] || []
+                          const winners = entries.filter(e => e.is_winner)
+                          const status = getRaffleStatus(raffle)
+                          return (
+                            <div key={raffle.id} className={`poll-card ${!raffle.is_active ? 'inactive' : ''}`} style={{
+                              borderLeft: status === 'active' ? '4px solid var(--success)' : 
+                                         status === 'upcoming' ? '4px solid var(--accent)' :
+                                         status === 'drawn' ? '4px solid var(--accent)' :
+                                         status === 'ended' ? '4px solid var(--text-secondary)' : '4px solid var(--border)'
+                            }}>
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                    <h3>🎲 {raffle.title}</h3>
+                                    <span style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      background: status === 'active' ? 'rgba(16, 185, 129, 0.1)' :
+                                                 status === 'upcoming' ? 'rgba(139, 92, 246, 0.1)' :
+                                                 status === 'drawn' ? 'rgba(139, 92, 246, 0.2)' :
+                                                 status === 'ended' ? 'rgba(107, 114, 128, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                                      color: status === 'active' ? 'var(--success)' :
+                                             status === 'upcoming' ? 'var(--accent)' :
+                                             status === 'drawn' ? 'var(--accent)' :
+                                             status === 'ended' ? 'var(--text-secondary)' : 'var(--text-secondary)'
+                                    }}>
+                                      {status === 'active' ? '🟢 Active' :
+                                       status === 'upcoming' ? '🔵 Upcoming' :
+                                       status === 'drawn' ? '🎉 Drawn' :
+                                       status === 'ended' ? '⚫ Ended' : '⚪ Inactive'}
+                                    </span>
+                                  </div>
+                                  {raffle.description && (
+                                    <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                      {raffle.description}
+                                    </p>
+                                  )}
+                                  {raffle.prize_description && (
+                                    <p style={{ marginTop: '8px', color: 'var(--accent)', fontSize: '14px', fontWeight: 500 }}>
+                                      🎁 Prize: {raffle.prize_description}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    onClick={() => toggleRaffleActive(raffle.id, raffle.is_active)}
+                                    className="btn btn-small btn-secondary"
+                                    title={raffle.is_active ? 'Pause' : 'Activate'}
+                                    disabled={raffle.is_drawn}
+                                  >
+                                    {raffle.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  {!raffle.is_drawn && entries.length > 0 && (
+                                    <button
+                                      onClick={() => drawRaffleWinners(raffle.id)}
+                                      className="btn btn-small"
+                                      title="Draw Winners"
+                                      disabled={drawingRaffle === raffle.id}
+                                    >
+                                      {drawingRaffle === raffle.id ? '🎲 Drawing...' : '🎲 Draw'}
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => setSelectedRaffle(selectedRaffle?.id === raffle.id ? null : raffle)}
+                                    className="btn btn-small"
+                                    title="View Entries"
+                                  >
+                                    {selectedRaffle?.id === raffle.id ? '👁️ Hide' : '📝 Entries'}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteRaffle(raffle.id)}
+                                    className="btn btn-small btn-danger"
+                                    title="Delete"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="poll-stats">
+                                <span className="poll-stat">📝 {entries.length} entr{entries.length !== 1 ? 'ies' : 'y'}</span>
+                                {winners.length > 0 && (
+                                  <span className="poll-stat" style={{ color: 'var(--accent)' }}>
+                                    🏆 {winners.length} winner{winners.length > 1 ? 's' : ''}
+                                  </span>
+                                )}
+                                <span className="poll-stat">🎯 {raffle.winner_count} winner{raffle.winner_count > 1 ? 's' : ''} to draw</span>
+                                {raffle.starts_at && (
+                                  <span className="poll-stat">
+                                    📅 Starts {new Date(raffle.starts_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                                {raffle.ends_at && (
+                                  <span className="poll-stat">
+                                    ⏰ Ends {new Date(raffle.ends_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                                {raffle.draw_at && (
+                                  <span className="poll-stat">
+                                    🎲 Draws {new Date(raffle.draw_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                              {selectedRaffle?.id === raffle.id && (
+                                <div className="poll-results" style={{ marginTop: '20px' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                                    <h4>Entries ({entries.length})</h4>
+                                  </div>
+                                  {entries.length === 0 ? (
+                                    <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+                                      No entries yet
+                                    </p>
+                                  ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', marginTop: '16px' }}>
+                                      {entries.map((entry) => (
+                                        <div key={entry.id} style={{ 
+                                          padding: '14px', 
+                                          background: entry.is_winner ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
+                                          borderRadius: '8px',
+                                          border: entry.is_winner ? '2px solid var(--success)' : '1px solid var(--border)'
+                                        }}>
+                                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                                            <div>
+                                              <p style={{ fontWeight: entry.is_winner ? 600 : 500, marginBottom: '4px' }}>
+                                                {entry.is_winner && '🏆 '}{entry.entry_name}
+                                              </p>
+                                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                                {new Date(entry.created_at).toLocaleString()}
+                                              </span>
+                                            </div>
+                                            {entry.is_winner && (
+                                              <span style={{ 
+                                                background: 'var(--success)', 
+                                                color: 'white', 
+                                                padding: '4px 8px', 
+                                                borderRadius: '4px',
+                                                fontSize: '12px',
+                                                fontWeight: 600
+                                              }}>
+                                                Winner
+                                              </span>
+                                            )}
+                      </div>
+                    </div>
+                  ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                </div>
+              ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🎲</div>
+                        <p>No raffles yet</p>
+                        <p className="empty-hint">Create raffles and giveaways for your community</p>
+                        <button
+                          onClick={() => setShowCreateRaffle(true)}
+                          className="btn"
+                        >
+                          Create Your First Raffle
+                        </button>
+                </div>
+              )}
+            </div>
+                )}
+
                 {/* Community Voting View */}
                 {hubView === 'voting' && (
                   <div className="hub-voting-view">
@@ -4325,7 +4606,7 @@ export default function Dashboard() {
                       {primaryVentLink && (
                         <button className="btn btn-secondary">+ New Vote</button>
                       )}
-                  </div>
+          </div>
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🗳️</div>
