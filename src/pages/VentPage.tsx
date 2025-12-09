@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { supabase, VentLink, PollWithOptions } from '../lib/supabase'
+import { supabase, VentLink, PollWithOptions, QASession, QAQuestion } from '../lib/supabase'
 import { validateMessage, prepareMessageForStorage } from '../lib/validation'
 import { sanitizeErrorMessage } from '../lib/errorHandler'
 import './VentPage.css'
@@ -32,6 +32,11 @@ export default function VentPage() {
   const [activePolls, setActivePolls] = useState<PollWithOptions[]>([])
   const [votedPollId, setVotedPollId] = useState<string | null>(null)
   const [voting, setVoting] = useState(false)
+  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa'>('message')
+  const [activeQASessions, setActiveQASessions] = useState<QASession[]>([])
+  const [qaQuestions, setQaQuestions] = useState<{ [sessionId: string]: QAQuestion[] }>({})
+  const [submittingQuestion, setSubmittingQuestion] = useState<string | null>(null)
+  const [questionTexts, setQuestionTexts] = useState<{ [sessionId: string]: string }>({})
 
   useEffect(() => {
     if (!slug) return
@@ -110,6 +115,30 @@ export default function VentPage() {
           }
 
           setActivePolls(pollsWithData)
+        }
+
+        // Fetch active Q&A sessions
+        const { data: qaSessionsData, error: qaSessionsError } = await supabase
+          .from('qa_sessions')
+          .select('*')
+          .eq('vent_link_id', ventLinkData.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+
+        if (!qaSessionsError && qaSessionsData && qaSessionsData.length > 0) {
+          setActiveQASessions(qaSessionsData)
+          
+          // Fetch questions for each session
+          const questionsBySession: { [sessionId: string]: QAQuestion[] } = {}
+          for (const session of qaSessionsData) {
+            const { data: questionsData } = await supabase
+              .from('qa_questions')
+              .select('*')
+              .eq('qa_session_id', session.id)
+              .order('created_at', { ascending: false })
+            questionsBySession[session.id] = questionsData || []
+          }
+          setQaQuestions(questionsBySession)
         }
       } catch (err: any) {
         setVentLink(null)
@@ -308,6 +337,51 @@ export default function VentPage() {
     }
   }
 
+  async function submitQuestion(sessionId: string) {
+    const questionText = questionTexts[sessionId] || ''
+    if (!questionText.trim()) {
+      setStatus('Please enter a question')
+      return
+    }
+
+    setSubmittingQuestion(sessionId)
+    try {
+      const { error } = await supabase
+        .from('qa_questions')
+        .insert({
+          qa_session_id: sessionId,
+          question_text: questionText.trim(),
+          ip_hash: null,
+        })
+
+      if (error) {
+        const sanitizedError = sanitizeErrorMessage(error)
+        setStatus(sanitizedError)
+        return
+      }
+
+      setQuestionTexts(prev => ({ ...prev, [sessionId]: '' }))
+      setStatus('Question submitted!')
+      
+      // Refresh questions
+      const { data: questionsData } = await supabase
+        .from('qa_questions')
+        .select('*')
+        .eq('qa_session_id', sessionId)
+        .order('created_at', { ascending: false })
+      
+      setQaQuestions(prev => ({
+        ...prev,
+        [sessionId]: questionsData || []
+      }))
+    } catch (err: any) {
+      const sanitizedError = sanitizeErrorMessage(err)
+      setStatus(sanitizedError)
+    } finally {
+      setSubmittingQuestion(null)
+    }
+  }
+
   if (loading) {
     return (
       <div className="vent-page">
@@ -374,8 +448,95 @@ export default function VentPage() {
           </div>
         </div>
 
-        {/* Active Poll Section */}
-        {activePolls.map((poll) => (
+        {/* Tabs Navigation */}
+        <div className="vent-tabs">
+          <button
+            className={`vent-tab ${activeTab === 'message' ? 'active' : ''}`}
+            onClick={() => setActiveTab('message')}
+          >
+            💬 Message
+            {activePolls.length > 0 || activeQASessions.length > 0 ? null : <span className="tab-badge">New</span>}
+          </button>
+          {activePolls.length > 0 && (
+            <button
+              className={`vent-tab ${activeTab === 'polls' ? 'active' : ''}`}
+              onClick={() => setActiveTab('polls')}
+            >
+              📊 Polls
+              <span className="tab-badge">{activePolls.length}</span>
+            </button>
+          )}
+          {activeQASessions.length > 0 && (
+            <button
+              className={`vent-tab ${activeTab === 'qa' ? 'active' : ''}`}
+              onClick={() => setActiveTab('qa')}
+            >
+              💬 Q&A
+              <span className="tab-badge">{activeQASessions.length}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Tab Content */}
+        {activeTab === 'message' && (
+          <div className="tab-content">
+            <div className="form-card">
+              <div className="form-header">
+                <h3>Send a message</h3>
+                <p className="form-hint">Anonymous. No tracking. Just words.</p>
+              </div>
+
+              <form onSubmit={handleSubmit} className="vent-form">
+                <textarea
+                  className="textarea"
+                  value={message}
+                  onChange={(e) => setMessage(e.target.value)}
+                  placeholder="Say what you need to say..."
+                  required
+                  disabled={submitting}
+                  maxLength={5000}
+                />
+                <div className="char-counter">
+                  {message.length} / 5000 characters
+                </div>
+
+                <select
+                  className="select"
+                  value={mood}
+                  onChange={(e) => setMood(e.target.value)}
+                  disabled={submitting}
+                >
+                  {MOODS.map((m) => (
+                    <option key={m.value} value={m.value}>
+                      {m.label}
+                    </option>
+                  ))}
+                </select>
+
+                {status && (
+                  <div className={status.includes('wrong') || status.includes('Please') ? 'error-message' : 'success-message'}>
+                    {status}
+                  </div>
+                )}
+
+                {error && <div className="error-message">{error}</div>}
+
+                <button
+                  type="submit"
+                  className="btn btn-primary"
+                  disabled={submitting || !message.trim()}
+                >
+                  {submitting ? 'Sending...' : 'Send anonymously'}
+                </button>
+              </form>
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'polls' && (
+          <div className="tab-content">
+            {/* Active Poll Section */}
+            {activePolls.map((poll) => (
           <div key={poll.id} className="poll-section">
             <h3 className="poll-question">{poll.question}</h3>
             {votedPollId === poll.id || poll.total_votes ? (
@@ -420,70 +581,80 @@ export default function VentPage() {
             )}
           </div>
         ))}
-
-        <div className="form-card">
-          <div className="form-header">
-            <h3>Send a message</h3>
-            <p className="form-hint">Anonymous. No tracking. Just words.</p>
           </div>
+        )}
 
-          <form onSubmit={handleSubmit} className="vent-form">
-            <textarea
-              className="textarea"
-              value={message}
-              onChange={(e) => setMessage(e.target.value)}
-              placeholder="Say what you need to say..."
-              required
-              disabled={submitting}
-              maxLength={5000}
-            />
-            <div className="char-counter">
-              {message.length} / 5000 characters
-            </div>
+        {activeTab === 'qa' && (
+          <div className="tab-content">
+            {activeQASessions.map((session) => {
+              const questions = qaQuestions[session.id] || []
+              return (
+                <div key={session.id} className="poll-section">
+                  <h3 className="poll-question">{session.title}</h3>
+                  {session.description && (
+                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '20px' }}>
+                      {session.description}
+                    </p>
+                  )}
+                  
+                  <div style={{ marginBottom: '20px' }}>
+                    <textarea
+                      className="textarea"
+                      placeholder="Ask your question..."
+                      value={questionTexts[session.id] || ''}
+                      onChange={(e) => setQuestionTexts(prev => ({ ...prev, [session.id]: e.target.value }))}
+                      rows={4}
+                      style={{ marginBottom: '12px' }}
+                    />
+                    <button
+                      onClick={() => submitQuestion(session.id)}
+                      className="btn btn-primary"
+                      disabled={submittingQuestion === session.id || !(questionTexts[session.id] || '').trim()}
+                      style={{ width: '100%' }}
+                    >
+                      {submittingQuestion === session.id ? 'Submitting...' : 'Submit Question'}
+                    </button>
+                  </div>
 
-            <div className="form-row">
-              <div className="form-col">
-                <label className="field-label">Mood (optional)</label>
-                <select
-                  className="select"
-                  value={mood}
-                  onChange={(e) => setMood(e.target.value)}
-                  disabled={submitting}
-                >
-                  {MOODS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="form-col tips-card">
-                <div className="tips-title">Tips for a helpful message</div>
-                <ul className="tips-list">
-                  <li>Share how you feel or what happened</li>
-                  <li>Add context if you want feedback</li>
-                  <li>Keep it respectful and kind</li>
-                </ul>
-              </div>
-            </div>
-
-            {status && (
-              <div className={status.includes('wrong') || status.includes('Please') ? 'error-message' : 'success-message'}>
-                {status}
-              </div>
-            )}
-
-            {error && <div className="error-message">{error}</div>}
-
-            <button
-              type="submit"
-              className="btn btn-primary"
-              disabled={submitting || !message.trim()}
-            >
-              {submitting ? 'Sending...' : 'Send anonymously'}
-            </button>
-          </form>
-        </div>
+                  {questions.length > 0 && (
+                    <div className="poll-results">
+                      <h4 style={{ marginBottom: '16px', textAlign: 'center' }}>Questions & Answers ({questions.length})</h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                        {questions.map((question) => (
+                          <div key={question.id} style={{ 
+                            padding: '16px', 
+                            background: 'var(--bg-secondary)', 
+                            borderRadius: '8px',
+                            border: question.is_answered ? '1px solid var(--success)' : '1px solid var(--border)'
+                          }}>
+                            <div style={{ marginBottom: question.is_answered ? '12px' : '0' }}>
+                              <p style={{ fontWeight: 500, marginBottom: '8px' }}>{question.question_text}</p>
+                              <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                {new Date(question.created_at).toLocaleString()}
+                              </span>
+                            </div>
+                            {question.is_answered && question.answer_text && (
+                              <div style={{ 
+                                padding: '12px', 
+                                background: 'var(--bg-primary)', 
+                                borderRadius: '6px',
+                                marginTop: '12px',
+                                borderLeft: '3px solid var(--success)'
+                              }}>
+                                <strong style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Answer:</strong>
+                                <p style={{ marginTop: '4px' }}>{question.answer_text}</p>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
 
         <div className="footer-note">
           <div className="footer-pill">

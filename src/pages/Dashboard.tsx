@@ -70,6 +70,16 @@ export default function Dashboard() {
   
   // Community Engagement Features State
   const [qaSessions, setQaSessions] = useState<QASession[]>([])
+  const [qaQuestions, setQaQuestions] = useState<{ [sessionId: string]: QAQuestion[] }>({})
+  const [showCreateQASession, setShowCreateQASession] = useState(false)
+  const [newQASessionTitle, setNewQASessionTitle] = useState('')
+  const [newQASessionDescription, setNewQASessionDescription] = useState('')
+  const [newQASessionStartsAt, setNewQASessionStartsAt] = useState('')
+  const [newQASessionEndsAt, setNewQASessionEndsAt] = useState('')
+  const [creatingQASession, setCreatingQASession] = useState(false)
+  const [selectedQASession, setSelectedQASession] = useState<QASession | null>(null)
+  const [answeringQuestion, setAnsweringQuestion] = useState<string | null>(null)
+  const [answerText, setAnswerText] = useState('')
   const [challenges, setChallenges] = useState<Challenge[]>([])
   const [communityVotes, setCommunityVotes] = useState<CommunityVoteWithOptions[]>([])
   const [feedbackForms, setFeedbackForms] = useState<FeedbackForm[]>([])
@@ -452,6 +462,29 @@ export default function Dashboard() {
             })
           )
           setPolls(pollsWithData)
+        }
+
+        // Fetch Q&A sessions
+        const { data: qaSessionsData, error: qaSessionsError } = await supabase
+          .from('qa_sessions')
+          .select('*')
+          .in('vent_link_id', linkIds)
+          .order('created_at', { ascending: false })
+
+        if (!qaSessionsError && qaSessionsData) {
+          setQaSessions(qaSessionsData)
+          
+          // Fetch questions for each session
+          const questionsBySession: { [sessionId: string]: QAQuestion[] } = {}
+          for (const session of qaSessionsData) {
+            const { data: questionsData } = await supabase
+              .from('qa_questions')
+              .select('*')
+              .eq('qa_session_id', session.id)
+              .order('created_at', { ascending: false })
+            questionsBySession[session.id] = questionsData || []
+          }
+          setQaQuestions(questionsBySession)
         }
       }
 
@@ -892,6 +925,112 @@ export default function Dashboard() {
     a.download = `poll-results-${poll.id.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function createQASession() {
+    if (!primaryVentLink) {
+      alert('Please create a vent link first')
+      return
+    }
+
+    if (!newQASessionTitle.trim()) {
+      alert('Please enter a session title')
+      return
+    }
+
+    setCreatingQASession(true)
+    try {
+      const { error } = await supabase
+        .from('qa_sessions')
+        .insert({
+          vent_link_id: primaryVentLink.id,
+          title: newQASessionTitle.trim(),
+          description: newQASessionDescription.trim() || null,
+          is_active: true,
+          starts_at: newQASessionStartsAt ? new Date(newQASessionStartsAt).toISOString() : null,
+          ends_at: newQASessionEndsAt ? new Date(newQASessionEndsAt).toISOString() : null,
+        })
+
+      if (error) throw error
+
+      setNewQASessionTitle('')
+      setNewQASessionDescription('')
+      setNewQASessionStartsAt('')
+      setNewQASessionEndsAt('')
+      setShowCreateQASession(false)
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to create Q&A session')
+    } finally {
+      setCreatingQASession(false)
+    }
+  }
+
+  async function toggleQASessionActive(sessionId: string, isActive: boolean) {
+    const { error } = await supabase
+      .from('qa_sessions')
+      .update({ is_active: !isActive })
+      .eq('id', sessionId)
+
+    if (!error) {
+      await fetchData()
+    }
+  }
+
+  async function answerQuestion(questionId: string, sessionId: string) {
+    if (!answerText.trim()) {
+      alert('Please enter an answer')
+      return
+    }
+
+    setAnsweringQuestion(questionId)
+    try {
+      const { error } = await supabase
+        .from('qa_questions')
+        .update({
+          answer_text: answerText.trim(),
+          is_answered: true,
+          answered_at: new Date().toISOString(),
+        })
+        .eq('id', questionId)
+
+      if (error) throw error
+
+      setAnswerText('')
+      setAnsweringQuestion(null)
+      
+      // Refresh questions for this session
+      const { data: questionsData } = await supabase
+        .from('qa_questions')
+        .select('*')
+        .eq('qa_session_id', sessionId)
+        .order('created_at', { ascending: false })
+      
+      setQaQuestions(prev => ({
+        ...prev,
+        [sessionId]: questionsData || []
+      }))
+    } catch (err: any) {
+      alert(err.message || 'Failed to answer question')
+    } finally {
+      setAnsweringQuestion(null)
+    }
+  }
+
+  async function deleteQASession(sessionId: string) {
+    if (!confirm('Are you sure you want to delete this Q&A session? This will also delete all questions.')) return
+    
+    try {
+      const { error } = await supabase
+        .from('qa_sessions')
+        .delete()
+        .eq('id', sessionId)
+
+      if (error) throw error
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete Q&A session')
+    }
   }
 
   function addPollOption() {
@@ -2787,20 +2926,204 @@ export default function Dashboard() {
                     <div className="hub-section-header">
                       <h3>Q&A / AMA Sessions</h3>
                       {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Session</button>
-                )}
-              </div>
+                        <button 
+                          className="btn btn-secondary"
+                          onClick={() => setShowCreateQASession(!showCreateQASession)}
+                        >
+                          {showCreateQASession ? 'Cancel' : '+ New Session'}
+                        </button>
+                      )}
+                    </div>
+
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">💬</div>
                         <p>Create a vent link first</p>
                         <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
                       </div>
+                    ) : showCreateQASession ? (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label>Session Title *</label>
+                          <input
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Ask Me Anything!"
+                            value={newQASessionTitle}
+                            onChange={(e) => setNewQASessionTitle(e.target.value)}
+                            disabled={creatingQASession}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Description (optional)</label>
+                          <textarea
+                            className="input"
+                            placeholder="What is this Q&A session about?"
+                            value={newQASessionDescription}
+                            onChange={(e) => setNewQASessionDescription(e.target.value)}
+                            disabled={creatingQASession}
+                            rows={3}
+                          />
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                          <div className="form-group">
+                            <label>Start Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={newQASessionStartsAt}
+                              onChange={(e) => setNewQASessionStartsAt(e.target.value)}
+                              disabled={creatingQASession}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label>End Date (optional)</label>
+                            <input
+                              type="datetime-local"
+                              className="input"
+                              value={newQASessionEndsAt}
+                              onChange={(e) => setNewQASessionEndsAt(e.target.value)}
+                              disabled={creatingQASession}
+                            />
+                          </div>
+                        </div>
+                        <button
+                          onClick={createQASession}
+                          className="btn"
+                          disabled={creatingQASession || !newQASessionTitle.trim()}
+                        >
+                          {creatingQASession ? 'Creating...' : 'Create Session'}
+                        </button>
+                      </div>
+                    ) : qaSessions.length > 0 ? (
+                      <div className="polls-list">
+                        {qaSessions.map((session) => {
+                          const questions = qaQuestions[session.id] || []
+                          const unansweredCount = questions.filter(q => !q.is_answered).length
+                          return (
+                            <div key={session.id} className={`poll-card ${!session.is_active ? 'inactive' : ''}`}>
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <h3>{session.title}</h3>
+                                  {session.description && (
+                                    <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                      {session.description}
+                                    </p>
+                                  )}
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    onClick={() => toggleQASessionActive(session.id, session.is_active)}
+                                    className="btn btn-small btn-secondary"
+                                  >
+                                    {session.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  <button
+                                    onClick={() => setSelectedQASession(selectedQASession?.id === session.id ? null : session)}
+                                    className="btn btn-small"
+                                  >
+                                    {selectedQASession?.id === session.id ? '👁️ Hide' : '💬 Questions'}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteQASession(session.id)}
+                                    className="btn btn-small btn-danger"
+                                  >
+                                    🗑️
+                                  </button>
+                                </div>
+                              </div>
+                              <div className="poll-stats">
+                                <span className="poll-stat">💬 {questions.length} questions</span>
+                                {unansweredCount > 0 && (
+                                  <span className="poll-stat" style={{ color: 'var(--accent)' }}>
+                                    🔔 {unansweredCount} unanswered
+                                  </span>
+                                )}
+                                <span className="poll-stat">{session.is_active ? '✅ Active' : '⏸️ Inactive'}</span>
+                                {session.starts_at && (
+                                  <span className="poll-stat">
+                                    📅 Starts {new Date(session.starts_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                                {session.ends_at && (
+                                  <span className="poll-stat">
+                                    ⏰ Ends {new Date(session.ends_at).toLocaleDateString()}
+                                  </span>
+                                )}
+                              </div>
+                              {selectedQASession?.id === session.id && (
+                                <div className="poll-results" style={{ marginTop: '20px' }}>
+                                  <h4>Questions ({questions.length})</h4>
+                                  {questions.length === 0 ? (
+                                    <p style={{ color: 'var(--text-secondary)', textAlign: 'center', padding: '20px' }}>
+                                      No questions yet
+                                    </p>
+                                  ) : (
+                                    <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', marginTop: '16px' }}>
+                                      {questions.map((question) => (
+                                        <div key={question.id} style={{ 
+                                          padding: '16px', 
+                                          background: 'var(--bg-secondary)', 
+                                          borderRadius: '8px',
+                                          border: question.is_answered ? '1px solid var(--success)' : '1px solid var(--border)'
+                                        }}>
+                                          <div style={{ marginBottom: '12px' }}>
+                                            <p style={{ fontWeight: 500, marginBottom: '8px' }}>{question.question_text}</p>
+                                            <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                              {new Date(question.created_at).toLocaleString()}
+                                            </span>
+                                          </div>
+                                          {question.is_answered && question.answer_text ? (
+                                            <div style={{ 
+                                              padding: '12px', 
+                                              background: 'var(--bg-primary)', 
+                                              borderRadius: '6px',
+                                              marginTop: '8px',
+                                              borderLeft: '3px solid var(--success)'
+                                            }}>
+                                              <strong style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>Answer:</strong>
+                                              <p style={{ marginTop: '4px' }}>{question.answer_text}</p>
+                                            </div>
+                                          ) : (
+                                            <div>
+                                              <textarea
+                                                className="input"
+                                                placeholder="Write your answer..."
+                                                value={answeringQuestion === question.id ? answerText : ''}
+                                                onChange={(e) => setAnswerText(e.target.value)}
+                                                rows={3}
+                                                style={{ marginBottom: '8px' }}
+                                              />
+                                              <button
+                                                onClick={() => answerQuestion(question.id, session.id)}
+                                                className="btn btn-small"
+                                                disabled={answeringQuestion === question.id && !answerText.trim()}
+                                              >
+                                                {answeringQuestion === question.id ? 'Answering...' : 'Answer'}
+                                              </button>
+                                            </div>
+                                          )}
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
                     ) : (
                       <div className="empty-state-compact">
                         <div className="empty-icon">💬</div>
                         <p>No Q&A sessions yet</p>
                         <p className="empty-hint">Host Ask Me Anything sessions with your community</p>
+                        <button
+                          onClick={() => setShowCreateQASession(true)}
+                          className="btn"
+                        >
+                          Create Your First Q&A Session
+                        </button>
                       </div>
                     )}
                   </div>
