@@ -453,6 +453,22 @@ CREATE TRIGGER challenge_submissions_broadcast_trigger
   FOR EACH ROW 
   EXECUTE FUNCTION public.broadcast_challenge_table_changes('room:vent_link:');
 
+-- Raffles
+DROP TRIGGER IF EXISTS raffles_broadcast_trigger ON public.raffles;
+
+CREATE TRIGGER raffles_broadcast_trigger
+  AFTER INSERT OR UPDATE OR DELETE ON public.raffles
+  FOR EACH ROW 
+  EXECUTE FUNCTION public.broadcast_table_changes('room:vent_link:');
+
+-- Raffle Entries
+DROP TRIGGER IF EXISTS raffle_entries_broadcast_trigger ON public.raffle_entries;
+
+CREATE TRIGGER raffle_entries_broadcast_trigger
+  AFTER INSERT OR UPDATE OR DELETE ON public.raffle_entries
+  FOR EACH ROW 
+  EXECUTE FUNCTION public.broadcast_challenge_table_changes('room:vent_link:');
+
 -- Community Votes
 DROP TRIGGER IF EXISTS community_votes_broadcast_trigger ON public.community_votes;
 
@@ -575,6 +591,9 @@ CREATE INDEX IF NOT EXISTS idx_qa_sessions_vent_link_id ON public.qa_sessions(ve
 CREATE INDEX IF NOT EXISTS idx_qa_questions_qa_session_id ON public.qa_questions(qa_session_id);
 CREATE INDEX IF NOT EXISTS idx_challenges_vent_link_id ON public.challenges(vent_link_id);
 CREATE INDEX IF NOT EXISTS idx_challenge_submissions_challenge_id ON public.challenge_submissions(challenge_id);
+CREATE INDEX IF NOT EXISTS idx_raffles_vent_link_id ON public.raffles(vent_link_id);
+CREATE INDEX IF NOT EXISTS idx_raffles_is_active ON public.raffles(is_active);
+CREATE INDEX IF NOT EXISTS idx_raffle_entries_raffle_id ON public.raffle_entries(raffle_id);
 CREATE INDEX IF NOT EXISTS idx_community_votes_vent_link_id ON public.community_votes(vent_link_id);
 CREATE INDEX IF NOT EXISTS idx_vote_options_vote_id ON public.vote_options(vote_id);
 CREATE INDEX IF NOT EXISTS idx_vote_responses_vote_id ON public.vote_responses(vote_id);
@@ -695,6 +714,14 @@ BEGIN
     END;
     BEGIN
       ALTER PUBLICATION supabase_realtime ADD TABLE public.challenge_submissions;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.raffles;
+    EXCEPTION WHEN OTHERS THEN NULL;
+    END;
+    BEGIN
+      ALTER PUBLICATION supabase_realtime ADD TABLE public.raffle_entries;
     EXCEPTION WHEN OTHERS THEN NULL;
     END;
     BEGIN

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { useParams } from 'react-router-dom'
-import { supabase, VentLink, PollWithOptions, QASession, QAQuestion, Challenge, ChallengeSubmission } from '../lib/supabase'
+import { supabase, VentLink, PollWithOptions, QASession, QAQuestion, Challenge, ChallengeSubmission, Raffle, RaffleEntry } from '../lib/supabase'
 import { validateMessage, prepareMessageForStorage } from '../lib/validation'
 import { sanitizeErrorMessage } from '../lib/errorHandler'
 import './VentPage.css'
@@ -32,7 +32,7 @@ export default function VentPage() {
   const [activePolls, setActivePolls] = useState<PollWithOptions[]>([])
   const [votedPollId, setVotedPollId] = useState<string | null>(null)
   const [voting, setVoting] = useState(false)
-  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa' | 'challenges'>('message')
+  const [activeTab, setActiveTab] = useState<'message' | 'polls' | 'qa' | 'challenges' | 'raffles'>('message')
   const [activeQASessions, setActiveQASessions] = useState<QASession[]>([])
   const [qaQuestions, setQaQuestions] = useState<{ [sessionId: string]: QAQuestion[] }>({})
   const [submittingQuestion, setSubmittingQuestion] = useState<string | null>(null)
@@ -41,6 +41,10 @@ export default function VentPage() {
   const [challengeSubmissions, setChallengeSubmissions] = useState<{ [challengeId: string]: ChallengeSubmission[] }>({})
   const [submittingChallenge, setSubmittingChallenge] = useState<string | null>(null)
   const [submissionTexts, setSubmissionTexts] = useState<{ [challengeId: string]: string }>({})
+  const [activeRaffles, setActiveRaffles] = useState<Raffle[]>([])
+  const [raffleEntries, setRaffleEntries] = useState<{ [raffleId: string]: RaffleEntry[] }>({})
+  const [enteringRaffle, setEnteringRaffle] = useState<string | null>(null)
+  const [entryNames, setEntryNames] = useState<{ [raffleId: string]: string }>({})
 
   useEffect(() => {
     if (!slug) return
@@ -167,6 +171,30 @@ export default function VentPage() {
             submissionsByChallenge[challenge.id] = submissionsData || []
           }
           setChallengeSubmissions(submissionsByChallenge)
+        }
+
+        // Fetch active Raffles
+        const { data: rafflesData, error: rafflesError } = await supabase
+          .from('raffles')
+          .select('*')
+          .eq('vent_link_id', ventLinkData.id)
+          .eq('is_active', true)
+          .order('created_at', { ascending: false })
+
+        if (!rafflesError && rafflesData && rafflesData.length > 0) {
+          setActiveRaffles(rafflesData)
+          
+          // Fetch entries for each raffle
+          const entriesByRaffle: { [raffleId: string]: RaffleEntry[] } = {}
+          for (const raffle of rafflesData) {
+            const { data: entriesData } = await supabase
+              .from('raffle_entries')
+              .select('*')
+              .eq('raffle_id', raffle.id)
+              .order('created_at', { ascending: false })
+            entriesByRaffle[raffle.id] = entriesData || []
+          }
+          setRaffleEntries(entriesByRaffle)
         }
       } catch (err: any) {
         setVentLink(null)
@@ -546,6 +574,51 @@ export default function VentPage() {
       setStatus(sanitizedError)
     } finally {
       setSubmittingChallenge(null)
+    }
+  }
+
+  async function enterRaffle(raffleId: string) {
+    const entryName = entryNames[raffleId] || ''
+    if (!entryName.trim()) {
+      setStatus('Please enter your name')
+      return
+    }
+
+    setEnteringRaffle(raffleId)
+    try {
+      const { error } = await supabase
+        .from('raffle_entries')
+        .insert({
+          raffle_id: raffleId,
+          entry_name: entryName.trim(),
+          ip_hash: null,
+        })
+
+      if (error) {
+        const sanitizedError = sanitizeErrorMessage(error)
+        setStatus(sanitizedError)
+        return
+      }
+
+      setEntryNames(prev => ({ ...prev, [raffleId]: '' }))
+      setStatus('Entry submitted!')
+      
+      // Refresh entries
+      const { data: entriesData } = await supabase
+        .from('raffle_entries')
+        .select('*')
+        .eq('raffle_id', raffleId)
+        .order('created_at', { ascending: false })
+      
+      setRaffleEntries(prev => ({
+        ...prev,
+        [raffleId]: entriesData || []
+      }))
+    } catch (err: any) {
+      const sanitizedError = sanitizeErrorMessage(err)
+      setStatus(sanitizedError)
+    } finally {
+      setEnteringRaffle(null)
     }
   }
 
@@ -1003,6 +1076,181 @@ export default function VentPage() {
                                   )}
                                 </div>
                               </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+
+        {activeTab === 'raffles' && (
+          <div className="tab-content">
+            {activeRaffles.map((raffle) => {
+              const entries = raffleEntries[raffle.id] || []
+              const winners = entries.filter(e => e.is_winner)
+              const now = new Date()
+              const isUpcoming = raffle.starts_at && new Date(raffle.starts_at) > now
+              const isEnded = raffle.ends_at && new Date(raffle.ends_at) < now
+              const canEnter = !isUpcoming && !isEnded && !raffle.is_drawn
+
+              return (
+                <div key={raffle.id} className="poll-section" style={{
+                  borderLeft: isUpcoming ? '4px solid var(--accent)' :
+                               isEnded || raffle.is_drawn ? '4px solid var(--text-secondary)' :
+                               '4px solid var(--success)'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '12px', flexWrap: 'wrap' }}>
+                    <h3 className="poll-question" style={{ margin: 0, flex: 1 }}>
+                      🎲 {raffle.title}
+                    </h3>
+                    <span style={{
+                      padding: '6px 12px',
+                      borderRadius: '6px',
+                      fontSize: '12px',
+                      fontWeight: 600,
+                      background: isUpcoming ? 'rgba(139, 92, 246, 0.1)' :
+                                   isEnded || raffle.is_drawn ? 'rgba(107, 114, 128, 0.1)' :
+                                   'rgba(16, 185, 129, 0.1)',
+                      color: isUpcoming ? 'var(--accent)' :
+                             isEnded || raffle.is_drawn ? 'var(--text-secondary)' :
+                             'var(--success)'
+                    }}>
+                      {isUpcoming ? '🔵 Upcoming' :
+                       raffle.is_drawn ? '🎉 Drawn' :
+                       isEnded ? '⚫ Ended' :
+                       '🟢 Active'}
+                    </span>
+                  </div>
+                  
+                  {raffle.description && (
+                    <p style={{ textAlign: 'center', color: 'var(--text-secondary)', marginBottom: '16px', lineHeight: '1.6' }}>
+                      {raffle.description}
+                    </p>
+                  )}
+                  
+                  {raffle.prize_description && (
+                    <div style={{ 
+                      textAlign: 'center', 
+                      padding: '14px', 
+                      background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.1) 0%, rgba(139, 92, 246, 0.05) 100%)', 
+                      borderRadius: '10px',
+                      marginBottom: '20px',
+                      border: '2px solid var(--accent)'
+                    }}>
+                      <div style={{ fontSize: '24px', marginBottom: '8px' }}>🎁</div>
+                      <strong style={{ color: 'var(--accent)', fontSize: '16px' }}>Prize: {raffle.prize_description}</strong>
+                    </div>
+                  )}
+
+                  {(raffle.starts_at || raffle.ends_at || raffle.draw_at) && (
+                    <div style={{ 
+                      display: 'flex', 
+                      gap: '16px', 
+                      marginBottom: '20px',
+                      flexWrap: 'wrap',
+                      justifyContent: 'center',
+                      fontSize: '13px',
+                      color: 'var(--text-secondary)'
+                    }}>
+                      {raffle.starts_at && (
+                        <div>📅 Starts: {new Date(raffle.starts_at).toLocaleString()}</div>
+                      )}
+                      {raffle.ends_at && (
+                        <div>⏰ Ends: {new Date(raffle.ends_at).toLocaleString()}</div>
+                      )}
+                      {raffle.draw_at && (
+                        <div>🎲 Draws: {new Date(raffle.draw_at).toLocaleString()}</div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {canEnter ? (
+                    <div style={{ marginBottom: '20px' }}>
+                      <input
+                        type="text"
+                        className="input"
+                        placeholder="Enter your name..."
+                        value={entryNames[raffle.id] || ''}
+                        onChange={(e) => setEntryNames(prev => ({ ...prev, [raffle.id]: e.target.value }))}
+                        style={{ marginBottom: '12px' }}
+                      />
+                      <button
+                        onClick={() => enterRaffle(raffle.id)}
+                        className="btn btn-primary"
+                        disabled={enteringRaffle === raffle.id || !(entryNames[raffle.id] || '').trim()}
+                        style={{ width: '100%' }}
+                      >
+                        {enteringRaffle === raffle.id ? 'Entering...' : 'Enter Raffle'}
+                      </button>
+                    </div>
+                  ) : (
+                    <div style={{
+                      padding: '16px',
+                      background: 'var(--bg-secondary)',
+                      borderRadius: '8px',
+                      marginBottom: '20px',
+                      textAlign: 'center',
+                      border: '1px solid var(--border)'
+                    }}>
+                      <p style={{ margin: 0, color: 'var(--text-secondary)' }}>
+                        {isUpcoming ? '⏳ This raffle hasn\'t started yet' : 
+                         raffle.is_drawn ? '🎉 Winners have been drawn!' :
+                         '🔒 This raffle has ended'}
+                      </p>
+                    </div>
+                  )}
+
+                  {entries.length > 0 && (
+                    <div className="poll-results">
+                      <h4 style={{ marginBottom: '16px', textAlign: 'center' }}>
+                        Entries ({entries.length})
+                        {winners.length > 0 && (
+                          <span style={{ color: 'var(--accent)', marginLeft: '8px' }}>
+                            • {winners.length} Winner{winners.length > 1 ? 's' : ''}
+                          </span>
+                        )}
+                      </h4>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                        {entries.map((entry) => (
+                          <div key={entry.id} style={{ 
+                            padding: '16px', 
+                            background: entry.is_winner ? 'rgba(16, 185, 129, 0.1)' : 'var(--bg-secondary)', 
+                            borderRadius: '10px',
+                            border: entry.is_winner ? '2px solid var(--success)' : '1px solid var(--border)',
+                            transition: 'all 0.2s'
+                          }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                              {entry.is_winner && (
+                                <span style={{ fontSize: '24px', lineHeight: 1 }}>🏆</span>
+                              )}
+                              <div style={{ flex: 1 }}>
+                                <p style={{ 
+                                  fontWeight: entry.is_winner ? 600 : 500, 
+                                  marginBottom: '8px'
+                                }}>
+                                  {entry.entry_name}
+                                </p>
+                                <span style={{ fontSize: '12px', color: 'var(--text-secondary)' }}>
+                                  {new Date(entry.created_at).toLocaleString()}
+                                </span>
+                              </div>
+                              {entry.is_winner && (
+                                <span style={{
+                                  padding: '4px 10px',
+                                  background: 'var(--success)',
+                                  color: 'white',
+                                  borderRadius: '4px',
+                                  fontSize: '11px',
+                                  fontWeight: 600
+                                }}>
+                                  WINNER
+                                </span>
+                              )}
                             </div>
                           </div>
                         ))}

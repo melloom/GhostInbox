@@ -48,6 +48,32 @@ CREATE TABLE IF NOT EXISTS public.challenge_submissions (
   created_at TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ==================== Raffles ====================
+CREATE TABLE IF NOT EXISTS public.raffles (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  vent_link_id UUID NOT NULL REFERENCES public.vent_links(id) ON DELETE CASCADE,
+  title TEXT NOT NULL,
+  description TEXT,
+  prize_description TEXT,
+  is_active BOOLEAN DEFAULT true,
+  starts_at TIMESTAMPTZ,
+  ends_at TIMESTAMPTZ,
+  draw_at TIMESTAMPTZ,
+  winner_count INTEGER DEFAULT 1,
+  is_drawn BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+CREATE TABLE IF NOT EXISTS public.raffle_entries (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  raffle_id UUID NOT NULL REFERENCES public.raffles(id) ON DELETE CASCADE,
+  entry_name TEXT NOT NULL,
+  ip_hash TEXT,
+  is_winner BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE(raffle_id, ip_hash)
+);
+
 -- ==================== Community Voting ====================
 CREATE TABLE IF NOT EXISTS public.community_votes (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -174,6 +200,11 @@ CREATE INDEX IF NOT EXISTS idx_qa_questions_qa_session_id ON public.qa_questions
 CREATE INDEX IF NOT EXISTS idx_challenges_vent_link_id ON public.challenges(vent_link_id);
 CREATE INDEX IF NOT EXISTS idx_challenges_is_active ON public.challenges(is_active);
 CREATE INDEX IF NOT EXISTS idx_challenge_submissions_challenge_id ON public.challenge_submissions(challenge_id);
+CREATE INDEX IF NOT EXISTS idx_raffles_vent_link_id ON public.raffles(vent_link_id);
+CREATE INDEX IF NOT EXISTS idx_raffles_is_active ON public.raffles(is_active);
+CREATE INDEX IF NOT EXISTS idx_raffles_is_drawn ON public.raffles(is_drawn);
+CREATE INDEX IF NOT EXISTS idx_raffle_entries_raffle_id ON public.raffle_entries(raffle_id);
+CREATE INDEX IF NOT EXISTS idx_raffle_entries_is_winner ON public.raffle_entries(is_winner);
 CREATE INDEX IF NOT EXISTS idx_community_votes_vent_link_id ON public.community_votes(vent_link_id);
 CREATE INDEX IF NOT EXISTS idx_community_votes_is_active ON public.community_votes(is_active);
 CREATE INDEX IF NOT EXISTS idx_vote_options_vote_id ON public.vote_options(vote_id);
@@ -325,6 +356,85 @@ CREATE POLICY "Challenge submissions: public can select active"
       SELECT 1 FROM public.challenges
       WHERE challenges.id = challenge_submissions.challenge_id
         AND challenges.is_active = true
+    )
+  );
+
+-- Raffles policies
+ALTER TABLE public.raffles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.raffle_entries ENABLE ROW LEVEL SECURITY;
+
+DROP POLICY IF EXISTS "Raffles: owners can manage" ON public.raffles;
+CREATE POLICY "Raffles: owners can manage"
+  ON public.raffles
+  FOR ALL
+  USING (
+    EXISTS(
+      SELECT 1 FROM public.vent_links
+      WHERE vent_links.id = raffles.vent_link_id
+        AND vent_links.owner_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS(
+      SELECT 1 FROM public.vent_links
+      WHERE vent_links.id = raffles.vent_link_id
+        AND vent_links.owner_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Raffles: public can select active" ON public.raffles;
+CREATE POLICY "Raffles: public can select active"
+  ON public.raffles
+  FOR SELECT
+  USING (
+    EXISTS(
+      SELECT 1 FROM public.vent_links
+      WHERE vent_links.id = raffles.vent_link_id
+    )
+  );
+
+DROP POLICY IF EXISTS "Raffle entries: owners can manage" ON public.raffle_entries;
+CREATE POLICY "Raffle entries: owners can manage"
+  ON public.raffle_entries
+  FOR ALL
+  USING (
+    EXISTS(
+      SELECT 1 FROM public.raffles
+      JOIN public.vent_links ON vent_links.id = raffles.vent_link_id
+      WHERE raffles.id = raffle_entries.raffle_id
+        AND vent_links.owner_id = auth.uid()
+    )
+  )
+  WITH CHECK (
+    EXISTS(
+      SELECT 1 FROM public.raffles
+      JOIN public.vent_links ON vent_links.id = raffles.vent_link_id
+      WHERE raffles.id = raffle_entries.raffle_id
+        AND vent_links.owner_id = auth.uid()
+    )
+  );
+
+DROP POLICY IF EXISTS "Raffle entries: public can insert for active" ON public.raffle_entries;
+CREATE POLICY "Raffle entries: public can insert for active"
+  ON public.raffle_entries
+  FOR INSERT
+  WITH CHECK (
+    EXISTS(
+      SELECT 1 FROM public.raffles
+      WHERE raffles.id = raffle_entries.raffle_id
+        AND raffles.is_active = true
+        AND raffles.is_drawn = false
+    )
+  );
+
+DROP POLICY IF EXISTS "Raffle entries: public can select" ON public.raffle_entries;
+CREATE POLICY "Raffle entries: public can select"
+  ON public.raffle_entries
+  FOR SELECT
+  USING (
+    EXISTS(
+      SELECT 1 FROM public.raffles
+      WHERE raffles.id = raffle_entries.raffle_id
     )
   );
 

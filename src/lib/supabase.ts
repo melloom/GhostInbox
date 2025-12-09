@@ -198,6 +198,30 @@ export interface ChallengeSubmission {
   created_at: string
 }
 
+export interface Raffle {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  prize_description: string | null
+  is_active: boolean
+  starts_at: string | null
+  ends_at: string | null
+  draw_at: string | null
+  winner_count: number
+  is_drawn: boolean
+  created_at: string
+}
+
+export interface RaffleEntry {
+  id: string
+  raffle_id: string
+  entry_name: string
+  ip_hash: string | null
+  is_winner: boolean
+  created_at: string
+}
+
 export interface CommunityVote {
   id: string
   vent_link_id: string

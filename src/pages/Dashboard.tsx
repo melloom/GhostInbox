@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase, VentLink, VentMessage, Profile, PollWithOptions, MessageFolder, MessageFolderAssignment, QASession, QAQuestion, Challenge, ChallengeSubmission, CommunityVoteWithOptions, FeedbackForm, CommunityHighlight, MessageReaction, CommunityGoal, CommunityEvent, CollaborativeProject } from '../lib/supabase'
+import { supabase, VentLink, VentMessage, Profile, PollWithOptions, MessageFolder, MessageFolderAssignment, QASession, QAQuestion, Challenge, ChallengeSubmission, Raffle, RaffleEntry, CommunityVoteWithOptions, FeedbackForm, CommunityHighlight, MessageReaction, CommunityGoal, CommunityEvent, CollaborativeProject } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { generateReplyTemplates, summarizeThemes } from '../lib/ai'
 import './Dashboard.css'
@@ -66,7 +66,7 @@ export default function Dashboard() {
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [selectedFolderFilter, setSelectedFolderFilter] = useState<string | null>(null)
-  const [hubView, setHubView] = useState<'links' | 'polls' | 'qa' | 'challenges' | 'voting' | 'feedback' | 'highlights' | 'reactions' | 'goals' | 'events' | 'wall' | 'projects'>('links')
+  const [hubView, setHubView] = useState<'links' | 'polls' | 'qa' | 'challenges' | 'raffles' | 'voting' | 'feedback' | 'highlights' | 'reactions' | 'goals' | 'events' | 'wall' | 'projects'>('links')
   
   // Community Engagement Features State
   const [qaSessions, setQaSessions] = useState<QASession[]>([])
@@ -103,6 +103,19 @@ export default function Dashboard() {
   const [updatingChallenge, setUpdatingChallenge] = useState(false)
   const [challengeFilter, setChallengeFilter] = useState<'all' | 'active' | 'inactive' | 'upcoming' | 'ended'>('all')
   const [submissionFilter, setSubmissionFilter] = useState<{ [challengeId: string]: 'all' | 'winners' | 'non-winners' }>({})
+  const [raffles, setRaffles] = useState<Raffle[]>([])
+  const [raffleEntries, setRaffleEntries] = useState<{ [raffleId: string]: RaffleEntry[] }>({})
+  const [showCreateRaffle, setShowCreateRaffle] = useState(false)
+  const [newRaffleTitle, setNewRaffleTitle] = useState('')
+  const [newRaffleDescription, setNewRaffleDescription] = useState('')
+  const [newRafflePrize, setNewRafflePrize] = useState('')
+  const [newRaffleStartsAt, setNewRaffleStartsAt] = useState('')
+  const [newRaffleEndsAt, setNewRaffleEndsAt] = useState('')
+  const [newRaffleDrawAt, setNewRaffleDrawAt] = useState('')
+  const [newRaffleWinnerCount, setNewRaffleWinnerCount] = useState('1')
+  const [creatingRaffle, setCreatingRaffle] = useState(false)
+  const [selectedRaffle, setSelectedRaffle] = useState<Raffle | null>(null)
+  const [drawingRaffle, setDrawingRaffle] = useState<string | null>(null)
   const [communityVotes, setCommunityVotes] = useState<CommunityVoteWithOptions[]>([])
   const [feedbackForms, setFeedbackForms] = useState<FeedbackForm[]>([])
   const [highlights, setHighlights] = useState<CommunityHighlight[]>([])
@@ -356,6 +369,107 @@ export default function Dashboard() {
         channel.unsubscribe()
       })
       submissionChannel.unsubscribe()
+    }
+
+    // Subscribe to raffle changes for each vent link
+    const raffleChannels = linkIds.map(linkId => {
+      return supabase
+        .channel(`raffles_${linkId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'raffles',
+            filter: `vent_link_id=eq.${linkId}`
+          },
+          async (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const raffle = payload.new as Raffle
+              setRaffles((prev) => [raffle, ...prev])
+              // Fetch entries for new raffle
+              const { data: entriesData } = await supabase
+                .from('raffle_entries')
+                .select('*')
+                .eq('raffle_id', raffle.id)
+                .order('created_at', { ascending: false })
+              setRaffleEntries((prev) => ({
+                ...prev,
+                [raffle.id]: entriesData || []
+              }))
+            } else if (payload.eventType === 'UPDATE') {
+              const raffle = payload.new as Raffle
+              setRaffles((prev) =>
+                prev.map((r) => (r.id === raffle.id ? raffle : r))
+              )
+            } else if (payload.eventType === 'DELETE') {
+              setRaffles((prev) => prev.filter((r) => r.id !== payload.old.id))
+              setRaffleEntries((prev) => {
+                const updated = { ...prev }
+                delete updated[payload.old.id]
+                return updated
+              })
+            }
+          }
+        )
+        .subscribe()
+    })
+
+    // Subscribe to raffle entry changes
+    const raffleEntryChannel = supabase
+      .channel('raffle_entries_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'raffle_entries'
+        },
+        async (payload) => {
+          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+            const entry = payload.new as RaffleEntry
+            // Fetch all entries for this raffle to update the list
+            const { data: entriesData } = await supabase
+              .from('raffle_entries')
+              .select('*')
+              .eq('raffle_id', entry.raffle_id)
+              .order('created_at', { ascending: false })
+            
+            setRaffleEntries((prev) => ({
+              ...prev,
+              [entry.raffle_id]: entriesData || []
+            }))
+          } else if (payload.eventType === 'DELETE') {
+            const oldEntry = payload.old as RaffleEntry
+            setRaffleEntries((prev) => {
+              const current = prev[oldEntry.raffle_id] || []
+              return {
+                ...prev,
+                [oldEntry.raffle_id]: current.filter(e => e.id !== oldEntry.id)
+              }
+            })
+          }
+        }
+      )
+      .subscribe()
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      messageChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      pollChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      votesChannel.unsubscribe()
+      challengeChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      submissionChannel.unsubscribe()
+      raffleChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      raffleEntryChannel.unsubscribe()
     }
   }, [ventLinks, polls])
 
@@ -627,6 +741,29 @@ export default function Dashboard() {
             submissionsByChallenge[challenge.id] = submissionsData || []
           }
           setChallengeSubmissions(submissionsByChallenge)
+        }
+
+        // Fetch Raffles
+        const { data: rafflesData, error: rafflesError } = await supabase
+          .from('raffles')
+          .select('*')
+          .in('vent_link_id', linkIds)
+          .order('created_at', { ascending: false })
+
+        if (!rafflesError && rafflesData) {
+          setRaffles(rafflesData)
+          
+          // Fetch entries for each raffle
+          const entriesByRaffle: { [raffleId: string]: RaffleEntry[] } = {}
+          for (const raffle of rafflesData) {
+            const { data: entriesData } = await supabase
+              .from('raffle_entries')
+              .select('*')
+              .eq('raffle_id', raffle.id)
+              .order('created_at', { ascending: false })
+            entriesByRaffle[raffle.id] = entriesData || []
+          }
+          setRaffleEntries(entriesByRaffle)
         }
       }
 
@@ -1404,6 +1541,134 @@ export default function Dashboard() {
     if (challengeFilter === 'ended') return getChallengeStatus(challenge) === 'ended'
     return true
   })
+
+  async function createRaffle() {
+    if (!primaryVentLink) {
+      alert('Please create a vent link first')
+      return
+    }
+
+    if (!newRaffleTitle.trim()) {
+      alert('Please enter a raffle title')
+      return
+    }
+
+    const winnerCount = parseInt(newRaffleWinnerCount) || 1
+    if (winnerCount < 1) {
+      alert('Winner count must be at least 1')
+      return
+    }
+
+    setCreatingRaffle(true)
+    try {
+      const { error } = await supabase
+        .from('raffles')
+        .insert({
+          vent_link_id: primaryVentLink.id,
+          title: newRaffleTitle.trim(),
+          description: newRaffleDescription.trim() || null,
+          prize_description: newRafflePrize.trim() || null,
+          is_active: true,
+          starts_at: newRaffleStartsAt ? new Date(newRaffleStartsAt).toISOString() : null,
+          ends_at: newRaffleEndsAt ? new Date(newRaffleEndsAt).toISOString() : null,
+          draw_at: newRaffleDrawAt ? new Date(newRaffleDrawAt).toISOString() : null,
+          winner_count: winnerCount,
+          is_drawn: false,
+        })
+
+      if (error) throw error
+
+      setNewRaffleTitle('')
+      setNewRaffleDescription('')
+      setNewRafflePrize('')
+      setNewRaffleStartsAt('')
+      setNewRaffleEndsAt('')
+      setNewRaffleDrawAt('')
+      setNewRaffleWinnerCount('1')
+      setShowCreateRaffle(false)
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to create raffle')
+    } finally {
+      setCreatingRaffle(false)
+    }
+  }
+
+  async function toggleRaffleActive(raffleId: string, isActive: boolean) {
+    const { error } = await supabase
+      .from('raffles')
+      .update({ is_active: !isActive })
+      .eq('id', raffleId)
+
+    if (!error) {
+      await fetchData()
+    }
+  }
+
+  async function drawRaffleWinners(raffleId: string) {
+    const raffle = raffles.find(r => r.id === raffleId)
+    if (!raffle) return
+
+    const entries = raffleEntries[raffleId] || []
+    if (entries.length === 0) {
+      alert('No entries to draw from')
+      return
+    }
+
+    if (!confirm(`Draw ${raffle.winner_count} winner(s) from ${entries.length} entries?`)) return
+
+    setDrawingRaffle(raffleId)
+    try {
+      // Shuffle entries and select winners
+      const shuffled = [...entries].sort(() => Math.random() - 0.5)
+      const winners = shuffled.slice(0, Math.min(raffle.winner_count, shuffled.length))
+
+      // Mark winners
+      for (const winner of winners) {
+        await supabase
+          .from('raffle_entries')
+          .update({ is_winner: true })
+          .eq('id', winner.id)
+      }
+
+      // Mark raffle as drawn
+      await supabase
+        .from('raffles')
+        .update({ is_drawn: true })
+        .eq('id', raffleId)
+
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to draw winners')
+    } finally {
+      setDrawingRaffle(null)
+    }
+  }
+
+  async function deleteRaffle(raffleId: string) {
+    if (!confirm('Are you sure you want to delete this raffle? This will also delete all entries.')) return
+    
+    try {
+      const { error } = await supabase
+        .from('raffles')
+        .delete()
+        .eq('id', raffleId)
+
+      if (error) throw error
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete raffle')
+    }
+  }
+
+  function getRaffleStatus(raffle: Raffle): 'upcoming' | 'active' | 'ended' | 'drawn' | 'inactive' {
+    if (!raffle.is_active) return 'inactive'
+    if (raffle.is_drawn) return 'drawn'
+    const now = new Date()
+    if (raffle.starts_at && new Date(raffle.starts_at) > now) return 'upcoming'
+    if (raffle.ends_at && new Date(raffle.ends_at) < now) return 'ended'
+    return 'active'
+  }
 
   function addPollOption() {
     setNewPollOptions([...newPollOptions, ''])
@@ -2679,6 +2944,14 @@ export default function Dashboard() {
                   <span className="hub-tab-icon">🏆</span>
                   <span className="hub-tab-text">Challenges</span>
                   {challenges.length > 0 && <span className="hub-tab-badge">{challenges.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'raffles' ? 'active' : ''}`}
+                  onClick={() => setHubView('raffles')}
+                >
+                  <span className="hub-tab-icon">🎲</span>
+                  <span className="hub-tab-text">Raffles</span>
+                  {raffles.length > 0 && <span className="hub-tab-badge">{raffles.length}</span>}
                 </button>
                 <button
                   className={`hub-tab ${hubView === 'voting' ? 'active' : ''}`}
