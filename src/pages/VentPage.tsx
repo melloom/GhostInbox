@@ -122,6 +122,62 @@ export default function VentPage() {
     fetchVentLink()
   }, [slug])
 
+  // Set up real-time subscription for poll votes
+  useEffect(() => {
+    if (!ventLink || activePolls.length === 0) return
+
+    // Subscribe to poll votes for real-time vote count updates
+    const votesChannel = supabase
+      .channel(`vent_poll_votes_${ventLink.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'poll_votes'
+        },
+        async (payload) => {
+          const vote = payload.new as any
+          // Check if this vote is for one of the active polls
+          const poll = activePolls.find(p => p.id === vote.poll_id)
+          if (poll) {
+            // Fetch updated vote counts for this poll
+            const { data: votesData } = await supabase
+              .from('poll_votes')
+              .select('option_id')
+              .eq('poll_id', vote.poll_id)
+
+            if (votesData) {
+              const voteCounts: { [key: string]: number } = {}
+              votesData.forEach((v) => {
+                voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1
+              })
+
+              // Update the poll's vote counts
+              setActivePolls((prev) =>
+                prev.map((p) => {
+                  if (p.id === vote.poll_id) {
+                    return {
+                      ...p,
+                      vote_counts: voteCounts,
+                      total_votes: votesData.length,
+                    }
+                  }
+                  return p
+                })
+              )
+            }
+          }
+        }
+      )
+      .subscribe()
+
+    // Cleanup subscription on unmount
+    return () => {
+      votesChannel.unsubscribe()
+    }
+  }, [ventLink, activePolls])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!ventLink) return
@@ -231,7 +287,7 @@ export default function VentPage() {
       const { data: votesData } = await supabase
         .from('poll_votes')
         .select('option_id')
-        .eq('poll_id', activePoll.id)
+        .eq('poll_id', pollId)
 
       const voteCounts: { [key: string]: number } = {}
       votesData?.forEach((vote) => {

@@ -56,7 +56,7 @@ export default function ResetPassword() {
 
     // Check current session after a brief delay to let Supabase process the hash
     setTimeout(() => {
-      supabase.auth.getSession().then(({ data: { session }, error: sessionError }) => {
+      supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
           // Check if URL has recovery token
           const currentHashParams = new URLSearchParams(window.location.hash.substring(1))

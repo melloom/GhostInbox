@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { supabase, VentLink, VentMessage, Profile, PollWithOptions, MessageFolder, MessageFolderAssignment } from '../lib/supabase'
+import { supabase, VentLink, VentMessage, Profile, PollWithOptions, MessageFolder, MessageFolderAssignment, QASession, QAQuestion, Challenge, ChallengeSubmission, CommunityVoteWithOptions, FeedbackForm, CommunityHighlight, MessageReaction, CommunityGoal, CommunityEvent, CollaborativeProject } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { generateReplyTemplates, summarizeThemes } from '../lib/ai'
 import './Dashboard.css'
@@ -28,9 +28,23 @@ export default function Dashboard() {
   const [showCreatePoll, setShowCreatePoll] = useState(false)
   const [pollView, setPollView] = useState<'all' | 'active' | 'archived'>('all')
   const [newPollQuestion, setNewPollQuestion] = useState('')
+  const [newPollDescription, setNewPollDescription] = useState('')
   const [newPollOptions, setNewPollOptions] = useState<string[]>(['', ''])
+  const [newPollExpiresAt, setNewPollExpiresAt] = useState('')
+  const [newPollMaxVotes, setNewPollMaxVotes] = useState('')
   const [creatingPoll, setCreatingPoll] = useState(false)
   const [selectedPoll, setSelectedPoll] = useState<PollWithOptions | null>(null)
+  const [editingPoll, setEditingPoll] = useState<PollWithOptions | null>(null)
+  const [editPollQuestion, setEditPollQuestion] = useState('')
+  const [editPollDescription, setEditPollDescription] = useState('')
+  const [editPollOptions, setEditPollOptions] = useState<Array<{ id?: string; text: string }>>([])
+  const [editPollExpiresAt, setEditPollExpiresAt] = useState('')
+  const [editPollMaxVotes, setEditPollMaxVotes] = useState('')
+  const [updatingPoll, setUpdatingPoll] = useState(false)
+  const [deletingPoll, setDeletingPoll] = useState<string | null>(null)
+  const [pollTemplates, setPollTemplates] = useState<Array<{ id: string; name: string; question: string; options: string[] }>>([])
+  const [showPollTemplates, setShowPollTemplates] = useState(false)
+  const [newTemplateName, setNewTemplateName] = useState('')
   const [editingDisplayName, setEditingDisplayName] = useState(false)
   const [newDisplayName, setNewDisplayName] = useState('')
   const [updatingProfile, setUpdatingProfile] = useState(false)
@@ -52,12 +66,169 @@ export default function Dashboard() {
   const [showCreateFolder, setShowCreateFolder] = useState(false)
   const [newFolderName, setNewFolderName] = useState('')
   const [selectedFolderFilter, setSelectedFolderFilter] = useState<string | null>(null)
-  const [hubView, setHubView] = useState<'links' | 'polls'>('links')
+  const [hubView, setHubView] = useState<'links' | 'polls' | 'qa' | 'challenges' | 'voting' | 'feedback' | 'highlights' | 'reactions' | 'goals' | 'events' | 'wall' | 'projects'>('links')
+  
+  // Community Engagement Features State
+  const [qaSessions, setQaSessions] = useState<QASession[]>([])
+  const [challenges, setChallenges] = useState<Challenge[]>([])
+  const [communityVotes, setCommunityVotes] = useState<CommunityVoteWithOptions[]>([])
+  const [feedbackForms, setFeedbackForms] = useState<FeedbackForm[]>([])
+  const [highlights, setHighlights] = useState<CommunityHighlight[]>([])
+  const [communityGoals, setCommunityGoals] = useState<CommunityGoal[]>([])
+  const [communityEvents, setCommunityEvents] = useState<CommunityEvent[]>([])
+  const [collaborativeProjects, setCollaborativeProjects] = useState<CollaborativeProject[]>([])
+  
   const navigate = useNavigate()
 
   useEffect(() => {
     fetchData()
   }, [])
+
+  // Set up real-time subscriptions after vent links are loaded
+  useEffect(() => {
+    if (ventLinks.length === 0) return
+
+    const linkIds = ventLinks.map(l => l.id)
+
+    // Subscribe to new messages for each vent link
+    const messageChannels = linkIds.map(linkId => {
+      return supabase
+        .channel(`vent_messages_${linkId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'vent_messages',
+            filter: `vent_link_id=eq.${linkId}`
+          },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              // New message added
+              setMessages((prev) => [payload.new as VentMessage, ...prev])
+            } else if (payload.eventType === 'UPDATE') {
+              // Message updated (e.g., marked as read, flagged)
+              setMessages((prev) =>
+                prev.map((msg) =>
+                  msg.id === payload.new.id ? (payload.new as VentMessage) : msg
+                )
+              )
+            } else if (payload.eventType === 'DELETE') {
+              // Message deleted
+              setMessages((prev) => prev.filter((msg) => msg.id !== payload.old.id))
+            }
+          }
+        )
+        .subscribe()
+    })
+
+    // Subscribe to poll changes for each vent link
+    const pollChannels = linkIds.map(linkId => {
+      return supabase
+        .channel(`polls_${linkId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'polls',
+            filter: `vent_link_id=eq.${linkId}`
+          },
+          async (payload) => {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              // Fetch full poll data with options and votes
+              const poll = payload.new as any
+              const { data: optionsData } = await supabase
+                .from('poll_options')
+                .select('*')
+                .eq('poll_id', poll.id)
+                .order('display_order', { ascending: true })
+
+              const { data: votesData } = await supabase
+                .from('poll_votes')
+                .select('option_id')
+                .eq('poll_id', poll.id)
+
+              const voteCounts: { [key: string]: number } = {}
+              votesData?.forEach((vote) => {
+                voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
+              })
+
+              const pollWithData = {
+                ...poll,
+                options: optionsData || [],
+                vote_counts: voteCounts,
+                total_votes: votesData?.length || 0,
+              } as PollWithOptions
+
+              if (payload.eventType === 'INSERT') {
+                setPolls((prev) => [pollWithData, ...prev])
+              } else {
+                setPolls((prev) =>
+                  prev.map((p) => (p.id === poll.id ? pollWithData : p))
+                )
+              }
+            } else if (payload.eventType === 'DELETE') {
+              setPolls((prev) => prev.filter((p) => p.id !== payload.old.id))
+            }
+          }
+        )
+        .subscribe()
+    })
+
+    // Subscribe to poll votes for real-time vote count updates
+    const votesChannel = supabase
+      .channel('poll_votes_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'poll_votes'
+        },
+        async (payload) => {
+          const vote = payload.new as any
+          // Fetch updated vote counts for this poll
+          const { data: votesData } = await supabase
+            .from('poll_votes')
+            .select('option_id')
+            .eq('poll_id', vote.poll_id)
+
+          if (votesData) {
+            const voteCounts: { [key: string]: number } = {}
+            votesData.forEach((v) => {
+              voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1
+            })
+
+            // Update the poll's vote counts
+            setPolls((prev) =>
+              prev.map((poll) => {
+                if (poll.id === vote.poll_id) {
+                  return {
+                    ...poll,
+                    vote_counts: voteCounts,
+                    total_votes: votesData.length,
+                  }
+                }
+                return poll
+              })
+            )
+          }
+        }
+      )
+      .subscribe()
+
+    // Cleanup subscriptions on unmount
+    return () => {
+      messageChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      pollChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      votesChannel.unsubscribe()
+    }
+  }, [ventLinks, polls])
 
   // Filter messages (search + filter + folder)
   const filteredMessages = messages.filter((msg) => {
@@ -478,7 +649,10 @@ export default function Dashboard() {
         .insert({
           vent_link_id: primaryVentLink.id,
           question: newPollQuestion.trim(),
+          description: newPollDescription.trim() || null,
           is_active: true,
+          expires_at: newPollExpiresAt ? new Date(newPollExpiresAt).toISOString() : null,
+          max_votes: newPollMaxVotes ? parseInt(newPollMaxVotes) : null,
         })
         .select()
         .single()
@@ -500,7 +674,10 @@ export default function Dashboard() {
 
       // Reset form and refresh
       setNewPollQuestion('')
+      setNewPollDescription('')
       setNewPollOptions(['', ''])
+      setNewPollExpiresAt('')
+      setNewPollMaxVotes('')
       setShowCreatePoll(false)
       await fetchData()
     } catch (err: any) {
@@ -522,6 +699,201 @@ export default function Dashboard() {
     }
   }
 
+  async function deletePoll(pollId: string) {
+    if (!confirm('Are you sure you want to delete this poll? This cannot be undone.')) return
+    
+    setDeletingPoll(pollId)
+    try {
+      const { error } = await supabase
+        .from('polls')
+        .delete()
+        .eq('id', pollId)
+
+      if (error) throw error
+      await fetchData()
+      setSelectedPoll(null)
+    } catch (err: any) {
+      alert(err.message || 'Failed to delete poll')
+    } finally {
+      setDeletingPoll(null)
+    }
+  }
+
+  function startEditingPoll(poll: PollWithOptions) {
+    setEditingPoll(poll)
+    setEditPollQuestion(poll.question)
+    setEditPollDescription(poll.description || '')
+    setEditPollOptions(poll.options.map(opt => ({ id: opt.id, text: opt.option_text })))
+    setEditPollExpiresAt(poll.expires_at ? new Date(poll.expires_at).toISOString().slice(0, 16) : '')
+    setEditPollMaxVotes(poll.max_votes?.toString() || '')
+    setShowCreatePoll(false)
+    setSelectedPoll(null)
+  }
+
+  function cancelEditPoll() {
+    setEditingPoll(null)
+    setEditPollQuestion('')
+    setEditPollDescription('')
+    setEditPollOptions([])
+    setEditPollExpiresAt('')
+    setEditPollMaxVotes('')
+  }
+
+  function updateEditPollOption(index: number, value: string) {
+    const updated = [...editPollOptions]
+    updated[index] = { ...updated[index], text: value }
+    setEditPollOptions(updated)
+  }
+
+  function addEditPollOption() {
+    setEditPollOptions([...editPollOptions, { text: '' }])
+  }
+
+  function removeEditPollOption(index: number) {
+    if (editPollOptions.length > 2) {
+      setEditPollOptions(editPollOptions.filter((_, i) => i !== index))
+    }
+  }
+
+  async function savePollEdit() {
+    if (!editingPoll || !editPollQuestion.trim() || editPollOptions.filter(opt => opt.text.trim()).length < 2) {
+      alert('Please fill in all required fields')
+      return
+    }
+
+    setUpdatingPoll(true)
+    try {
+      // Update poll
+      const { error: pollError } = await supabase
+        .from('polls')
+        .update({
+          question: editPollQuestion.trim(),
+          description: editPollDescription.trim() || null,
+          expires_at: editPollExpiresAt ? new Date(editPollExpiresAt).toISOString() : null,
+          max_votes: editPollMaxVotes ? parseInt(editPollMaxVotes) : null,
+        })
+        .eq('id', editingPoll.id)
+
+      if (pollError) throw pollError
+
+      // Update options
+      const validOptions = editPollOptions.filter(opt => opt.text.trim())
+      const existingOptions = editPollOptions.filter(opt => opt.id)
+      const newOptions = editPollOptions.filter(opt => !opt.id)
+
+      // Delete removed options
+      const optionsToDelete = editingPoll.options.filter(existing => 
+        !validOptions.some(edit => edit.id === existing.id)
+      )
+      if (optionsToDelete.length > 0) {
+        await supabase
+          .from('poll_options')
+          .delete()
+          .in('id', optionsToDelete.map(opt => opt.id))
+      }
+
+      // Update existing options
+      for (const option of existingOptions) {
+        if (option.id) {
+          await supabase
+            .from('poll_options')
+            .update({ option_text: option.text.trim() })
+            .eq('id', option.id)
+        }
+      }
+
+      // Add new options
+      if (newOptions.length > 0) {
+        const maxOrder = Math.max(...editingPoll.options.map(opt => opt.display_order), -1)
+        const optionsToInsert = newOptions.map((opt, index) => ({
+          poll_id: editingPoll.id,
+          option_text: opt.text.trim(),
+          display_order: maxOrder + index + 1,
+        }))
+        await supabase
+          .from('poll_options')
+          .insert(optionsToInsert)
+      }
+
+      await fetchData()
+      cancelEditPoll()
+    } catch (err: any) {
+      alert(err.message || 'Failed to update poll')
+    } finally {
+      setUpdatingPoll(false)
+    }
+  }
+
+  async function duplicatePoll(poll: PollWithOptions) {
+    if (!primaryVentLink) return
+
+    setCreatingPoll(true)
+    try {
+      // Create new poll
+      const { data: newPoll, error: pollError } = await supabase
+        .from('polls')
+        .insert({
+          vent_link_id: primaryVentLink.id,
+          question: `${poll.question} (Copy)`,
+          description: poll.description,
+          is_active: false, // Start as inactive
+          expires_at: poll.expires_at,
+          max_votes: poll.max_votes,
+        })
+        .select()
+        .single()
+
+      if (pollError) throw pollError
+
+      // Duplicate options
+      const optionsToInsert = poll.options.map((opt, index) => ({
+        poll_id: newPoll.id,
+        option_text: opt.option_text,
+        display_order: index,
+      }))
+
+      await supabase
+        .from('poll_options')
+        .insert(optionsToInsert)
+
+      await fetchData()
+    } catch (err: any) {
+      alert(err.message || 'Failed to duplicate poll')
+    } finally {
+      setCreatingPoll(false)
+    }
+  }
+
+  function exportPollResults(poll: PollWithOptions) {
+    const results = poll.options.map(option => {
+      const voteCount = poll.vote_counts?.[option.id] || 0
+      const percentage = poll.total_votes && poll.total_votes > 0
+        ? Math.round((voteCount / poll.total_votes) * 100)
+        : 0
+      return {
+        Option: option.option_text,
+        Votes: voteCount,
+        Percentage: `${percentage}%`,
+      }
+    })
+
+    const csv = [
+      ['Poll Question', poll.question],
+      ['Total Votes', poll.total_votes || 0],
+      [''],
+      ['Option', 'Votes', 'Percentage'],
+      ...results.map(r => [r.Option, r.Votes, r.Percentage])
+    ].map(row => row.join(',')).join('\n')
+
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `poll-results-${poll.id.slice(0, 8)}-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
   function addPollOption() {
     setNewPollOptions([...newPollOptions, ''])
   }
@@ -536,6 +908,151 @@ export default function Dashboard() {
     const updated = [...newPollOptions]
     updated[index] = value
     setNewPollOptions(updated)
+  }
+
+  // Poll Template Functions
+  function savePollAsTemplate() {
+    if (!newTemplateName.trim() || !newPollQuestion.trim() || newPollOptions.filter(opt => opt.trim()).length < 2) {
+      return
+    }
+
+    const newTemplate = {
+      id: Date.now().toString(),
+      name: newTemplateName.trim(),
+      question: newPollQuestion.trim(),
+      options: newPollOptions.filter(opt => opt.trim())
+    }
+
+    const updatedTemplates = [...pollTemplates, newTemplate]
+    setPollTemplates(updatedTemplates)
+    localStorage.setItem('pollTemplates', JSON.stringify(updatedTemplates))
+    setNewTemplateName('')
+  }
+
+  function usePollTemplate(template: { id: string; name: string; question: string; options: string[] }) {
+    setNewPollQuestion(template.question)
+    setNewPollOptions([...template.options, ''])
+    setShowPollTemplates(false)
+  }
+
+  function deletePollTemplate(templateId: string) {
+    const updatedTemplates = pollTemplates.filter(t => t.id !== templateId)
+    setPollTemplates(updatedTemplates)
+    localStorage.setItem('pollTemplates', JSON.stringify(updatedTemplates))
+  }
+
+  // Load poll templates from localStorage
+  useEffect(() => {
+    const savedTemplates = localStorage.getItem('pollTemplates')
+    if (savedTemplates) {
+      try {
+        setPollTemplates(JSON.parse(savedTemplates))
+      } catch (e) {
+        console.error('Error loading poll templates:', e)
+      }
+    }
+  }, [])
+
+  // Message Actions
+  async function toggleStar(messageId: string) {
+    const message = messages.find(m => m.id === messageId)
+    if (!message) return
+
+    const newStarred = !message.is_starred
+    const { error } = await supabase
+      .from('vent_messages')
+      .update({ is_starred: newStarred })
+      .eq('id', messageId)
+
+    if (!error) {
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === messageId ? { ...msg, is_starred: newStarred } : msg))
+      )
+    }
+  }
+
+  async function toggleArchive(messageId: string) {
+    const message = messages.find(m => m.id === messageId)
+    if (!message) return
+
+    const newArchived = !message.is_archived
+    const { error } = await supabase
+      .from('vent_messages')
+      .update({ is_archived: newArchived })
+      .eq('id', messageId)
+
+    if (!error) {
+      setMessages((prev) =>
+        prev.map((msg) => (msg.id === messageId ? { ...msg, is_archived: newArchived } : msg))
+      )
+    }
+  }
+
+  // Folder Functions
+  async function createFolder() {
+    if (!newFolderName.trim()) return
+
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data, error } = await supabase
+        .from('message_folders')
+        .insert({
+          owner_id: user.id,
+          folder_name: newFolderName.trim()
+        })
+        .select()
+        .single()
+
+      if (error) throw error
+
+      setMessageFolders((prev) => [...prev, data])
+      setNewFolderName('')
+      setShowCreateFolder(false)
+    } catch (err: any) {
+      console.error('Error creating folder:', err)
+      alert(err.message || 'Failed to create folder')
+    }
+  }
+
+  async function assignMessageToFolder(messageId: string, folderId: string) {
+    try {
+      const { error } = await supabase
+        .from('message_folder_assignments')
+        .insert({
+          message_id: messageId,
+          folder_id: folderId
+        })
+
+      if (error && !error.message.includes('duplicate')) throw error
+
+      setMessageFolderAssignments((prev) => ({
+        ...prev,
+        [messageId]: [...(prev[messageId] || []), folderId]
+      }))
+    } catch (err: any) {
+      console.error('Error assigning folder:', err)
+    }
+  }
+
+  async function removeMessageFromFolder(messageId: string, folderId: string) {
+    try {
+      const { error } = await supabase
+        .from('message_folder_assignments')
+        .delete()
+        .eq('message_id', messageId)
+        .eq('folder_id', folderId)
+
+      if (error) throw error
+
+      setMessageFolderAssignments((prev) => ({
+        ...prev,
+        [messageId]: (prev[messageId] || []).filter(id => id !== folderId)
+      }))
+    } catch (err: any) {
+      console.error('Error removing folder:', err)
+    }
   }
 
   // Bulk Actions
@@ -861,6 +1378,7 @@ export default function Dashboard() {
   const unreadCount = messages.filter(m => !m.is_read && !m.is_archived).length
   const flaggedCount = messages.filter(m => m.is_flagged && !m.is_archived).length
   const totalMessages = messages.filter(m => !m.is_archived).length
+  const needsResponseCount = messages.filter(m => !messageResponses[m.id] && !m.is_archived).length
   const readCount = messages.filter(m => m.is_read && !m.is_archived).length
   const starredCount = messages.filter(m => m.is_starred && !m.is_archived).length
   const archivedCount = messages.filter(m => m.is_archived).length
@@ -1511,47 +2029,47 @@ export default function Dashboard() {
           ) : (
             <>
           {/* Statistics Cards */}
-          <div className="stats-grid">
-            <div className="stat-card">
-              <div className="stat-icon">📨</div>
-              <div className="stat-content">
-                <div className="stat-value">{totalMessages}</div>
-                <div className="stat-label">Total Messages</div>
+          <div className="stats-grid-modern">
+            <div className="stat-card-modern">
+              <div className="stat-icon-modern">📨</div>
+              <div className="stat-info">
+                <div className="stat-value-modern">{totalMessages}</div>
+                <div className="stat-label-modern">Total</div>
               </div>
             </div>
-            <div className="stat-card stat-unread">
-              <div className="stat-icon">🔔</div>
-              <div className="stat-content">
-                <div className="stat-value">{unreadCount}</div>
-                <div className="stat-label">Unread</div>
+            <div className="stat-card-modern unread">
+              <div className="stat-icon-modern">🔔</div>
+              <div className="stat-info">
+                <div className="stat-value-modern">{unreadCount}</div>
+                <div className="stat-label-modern">Unread</div>
               </div>
             </div>
-            <div className="stat-card stat-today">
-              <div className="stat-icon">📅</div>
-              <div className="stat-content">
-                <div className="stat-value">{todayMessages}</div>
-                <div className="stat-label">Today</div>
+            <div className="stat-card-modern">
+              <div className="stat-icon-modern">📅</div>
+              <div className="stat-info">
+                <div className="stat-value-modern">{todayMessages}</div>
+                <div className="stat-label-modern">Today</div>
               </div>
             </div>
-            <div className="stat-card stat-week">
-              <div className="stat-icon">📊</div>
-              <div className="stat-content">
-                <div className="stat-value">{thisWeekMessages}</div>
-                <div className="stat-label">This Week</div>
+            <div className="stat-card-modern">
+              <div className="stat-icon-modern">📊</div>
+              <div className="stat-info">
+                <div className="stat-value-modern">{thisWeekMessages}</div>
+                <div className="stat-label-modern">This Week</div>
               </div>
             </div>
-            <div className="stat-card stat-flagged">
-              <div className="stat-icon">🚩</div>
-              <div className="stat-content">
-                <div className="stat-value">{flaggedCount}</div>
-                <div className="stat-label">Flagged</div>
+            <div className="stat-card-modern">
+              <div className="stat-icon-modern">🚩</div>
+              <div className="stat-info">
+                <div className="stat-value-modern">{flaggedCount}</div>
+                <div className="stat-label-modern">Flagged</div>
               </div>
             </div>
-            <div className="stat-card stat-read">
-              <div className="stat-icon">✅</div>
-              <div className="stat-content">
-                <div className="stat-value">{readCount}</div>
-                <div className="stat-label">Read</div>
+            <div className="stat-card-modern">
+              <div className="stat-icon-modern">✅</div>
+              <div className="stat-info">
+                <div className="stat-value-modern">{readCount}</div>
+                <div className="stat-label-modern">Read</div>
               </div>
             </div>
           </div>
@@ -1634,6 +2152,84 @@ export default function Dashboard() {
                   <span className="hub-tab-icon">📊</span>
                   <span className="hub-tab-text">Polls</span>
                   {polls.length > 0 && <span className="hub-tab-badge">{polls.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'qa' ? 'active' : ''}`}
+                  onClick={() => setHubView('qa')}
+                >
+                  <span className="hub-tab-icon">💬</span>
+                  <span className="hub-tab-text">Q&A</span>
+                  {qaSessions.length > 0 && <span className="hub-tab-badge">{qaSessions.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'challenges' ? 'active' : ''}`}
+                  onClick={() => setHubView('challenges')}
+                >
+                  <span className="hub-tab-icon">🏆</span>
+                  <span className="hub-tab-text">Challenges</span>
+                  {challenges.length > 0 && <span className="hub-tab-badge">{challenges.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'voting' ? 'active' : ''}`}
+                  onClick={() => setHubView('voting')}
+                >
+                  <span className="hub-tab-icon">🗳️</span>
+                  <span className="hub-tab-text">Voting</span>
+                  {communityVotes.length > 0 && <span className="hub-tab-badge">{communityVotes.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'feedback' ? 'active' : ''}`}
+                  onClick={() => setHubView('feedback')}
+                >
+                  <span className="hub-tab-icon">📝</span>
+                  <span className="hub-tab-text">Feedback</span>
+                  {feedbackForms.length > 0 && <span className="hub-tab-badge">{feedbackForms.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'highlights' ? 'active' : ''}`}
+                  onClick={() => setHubView('highlights')}
+                >
+                  <span className="hub-tab-icon">⭐</span>
+                  <span className="hub-tab-text">Highlights</span>
+                  {highlights.length > 0 && <span className="hub-tab-badge">{highlights.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'reactions' ? 'active' : ''}`}
+                  onClick={() => setHubView('reactions')}
+                >
+                  <span className="hub-tab-icon">😊</span>
+                  <span className="hub-tab-text">Reactions</span>
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'goals' ? 'active' : ''}`}
+                  onClick={() => setHubView('goals')}
+                >
+                  <span className="hub-tab-icon">🎯</span>
+                  <span className="hub-tab-text">Goals</span>
+                  {communityGoals.length > 0 && <span className="hub-tab-badge">{communityGoals.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'events' ? 'active' : ''}`}
+                  onClick={() => setHubView('events')}
+                >
+                  <span className="hub-tab-icon">📅</span>
+                  <span className="hub-tab-text">Events</span>
+                  {communityEvents.length > 0 && <span className="hub-tab-badge">{communityEvents.length}</span>}
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'wall' ? 'active' : ''}`}
+                  onClick={() => setHubView('wall')}
+                >
+                  <span className="hub-tab-icon">🧱</span>
+                  <span className="hub-tab-text">Wall</span>
+                </button>
+                <button
+                  className={`hub-tab ${hubView === 'projects' ? 'active' : ''}`}
+                  onClick={() => setHubView('projects')}
+                >
+                  <span className="hub-tab-icon">🤝</span>
+                  <span className="hub-tab-text">Projects</span>
+                  {collaborativeProjects.length > 0 && <span className="hub-tab-badge">{collaborativeProjects.length}</span>}
                 </button>
               </div>
 
@@ -1775,12 +2371,15 @@ export default function Dashboard() {
                         )}
                       </div>
                       {primaryVentLink ? (
-                        <button
-                          onClick={() => setShowCreatePoll(!showCreatePoll)}
-                          className="btn btn-secondary"
-                        >
-                          {showCreatePoll ? 'Cancel' : '+ New Poll'}
-                        </button>
+                <button
+                  onClick={() => {
+                    if (editingPoll) cancelEditPoll()
+                    setShowCreatePoll(!showCreatePoll)
+                  }}
+                  className="btn btn-secondary"
+                >
+                  {showCreatePoll ? 'Cancel' : '+ New Poll'}
+                </button>
                       ) : (
                         <button
                           onClick={() => { setHubView('links'); setShowCreateLink(true); }}
@@ -1789,7 +2388,7 @@ export default function Dashboard() {
                           Create Link First
                         </button>
                       )}
-                    </div>
+              </div>
 
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
@@ -1802,8 +2401,8 @@ export default function Dashboard() {
                           Create Vent Link
                         </button>
                       </div>
-                    ) : showCreatePoll && (
-                      <div className="create-poll-form">
+                    ) : showCreatePoll && !editingPoll && (
+                <div className="create-poll-form">
                         {pollTemplates.length > 0 && (
                           <div style={{ marginBottom: '16px' }}>
                             <button
@@ -1840,59 +2439,97 @@ export default function Dashboard() {
                             )}
                           </div>
                         )}
-                        <div className="form-group">
-                          <label htmlFor="poll-question">Poll Question</label>
-                          <input
-                            id="poll-question"
-                            type="text"
-                            className="input"
-                            placeholder="e.g., What's your favorite feature?"
-                            value={newPollQuestion}
-                            onChange={(e) => setNewPollQuestion(e.target.value)}
-                            disabled={creatingPoll}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label>Poll Options</label>
-                          {newPollOptions.map((option, index) => (
-                            <div key={index} className="poll-option-input">
-                              <input
-                                type="text"
-                                className="input"
-                                placeholder={`Option ${index + 1}`}
-                                value={option}
-                                onChange={(e) => updatePollOption(index, e.target.value)}
-                                disabled={creatingPoll}
-                              />
-                              {newPollOptions.length > 2 && (
-                                <button
-                                  type="button"
-                                  onClick={() => removePollOption(index)}
-                                  className="btn btn-danger btn-small"
-                                  disabled={creatingPoll}
-                                >
-                                  ×
-                                </button>
-                              )}
-                            </div>
-                          ))}
+                  <div className="form-group">
+                    <label htmlFor="poll-question">Poll Question *</label>
+                    <input
+                      id="poll-question"
+                      type="text"
+                      className="input"
+                      placeholder="e.g., What's your favorite feature?"
+                      value={newPollQuestion}
+                      onChange={(e) => setNewPollQuestion(e.target.value)}
+                      disabled={creatingPoll}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label htmlFor="poll-description">Description (optional)</label>
+                    <textarea
+                      id="poll-description"
+                      className="input"
+                      placeholder="Add more context about this poll..."
+                      value={newPollDescription}
+                      onChange={(e) => setNewPollDescription(e.target.value)}
+                      disabled={creatingPoll}
+                      rows={3}
+                    />
+                  </div>
+                  <div className="form-group">
+                    <label>Poll Options *</label>
+                    {newPollOptions.map((option, index) => (
+                      <div key={index} className="poll-option-input">
+                        <input
+                          type="text"
+                          className="input"
+                          placeholder={`Option ${index + 1}`}
+                          value={option}
+                          onChange={(e) => updatePollOption(index, e.target.value)}
+                          disabled={creatingPoll}
+                        />
+                        {newPollOptions.length > 2 && (
                           <button
                             type="button"
-                            onClick={addPollOption}
-                            className="btn btn-secondary btn-small"
+                            onClick={() => removePollOption(index)}
+                            className="btn btn-danger btn-small"
                             disabled={creatingPoll}
                           >
-                            + Add Option
+                            ×
                           </button>
-                        </div>
+                        )}
+                      </div>
+                    ))}
+                    <button
+                      type="button"
+                      onClick={addPollOption}
+                      className="btn btn-secondary btn-small"
+                      disabled={creatingPoll}
+                    >
+                      + Add Option
+                    </button>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
+                    <div className="form-group">
+                      <label htmlFor="poll-expires">Expiration Date (optional)</label>
+                      <input
+                        id="poll-expires"
+                        type="datetime-local"
+                        className="input"
+                        value={newPollExpiresAt}
+                        onChange={(e) => setNewPollExpiresAt(e.target.value)}
+                        disabled={creatingPoll}
+                      />
+                    </div>
+                    <div className="form-group">
+                      <label htmlFor="poll-max-votes">Max Votes (optional)</label>
+                      <input
+                        id="poll-max-votes"
+                        type="number"
+                        className="input"
+                        placeholder="No limit"
+                        value={newPollMaxVotes}
+                        onChange={(e) => setNewPollMaxVotes(e.target.value)}
+                        disabled={creatingPoll}
+                        min="1"
+                      />
+                    </div>
+                  </div>
                         <div style={{ display: 'flex', gap: '8px', marginTop: '16px', flexWrap: 'wrap' }}>
-                          <button
-                            onClick={createPoll}
-                            className="btn"
-                            disabled={creatingPoll || !newPollQuestion.trim() || newPollOptions.filter(opt => opt.trim()).length < 2}
-                          >
-                            {creatingPoll ? 'Creating...' : 'Create Poll'}
-                          </button>
+                  <button
+                    onClick={createPoll}
+                    className="btn"
+                    disabled={creatingPoll || !newPollQuestion.trim() || newPollOptions.filter(opt => opt.trim()).length < 2}
+                  >
+                    {creatingPoll ? 'Creating...' : 'Create Poll'}
+                  </button>
                           {newPollQuestion.trim() && newPollOptions.filter(opt => opt.trim()).length >= 2 && (
                             <>
                               <input
@@ -1913,80 +2550,460 @@ export default function Dashboard() {
                             </>
                           )}
                         </div>
+                </div>
+              )}
+
+                    {/* Edit Poll Form */}
+                    {editingPoll && (
+                      <div className="create-poll-form" style={{ marginBottom: '24px', border: '2px solid var(--accent)' }}>
+                        <h3 style={{ marginBottom: '16px' }}>Edit Poll</h3>
+                        <div className="form-group">
+                          <label htmlFor="edit-poll-question">Poll Question *</label>
+                          <input
+                            id="edit-poll-question"
+                            type="text"
+                            className="input"
+                            value={editPollQuestion}
+                            onChange={(e) => setEditPollQuestion(e.target.value)}
+                            disabled={updatingPoll}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-poll-description">Description (optional)</label>
+                          <textarea
+                            id="edit-poll-description"
+                            className="input"
+                            value={editPollDescription}
+                            onChange={(e) => setEditPollDescription(e.target.value)}
+                            disabled={updatingPoll}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label>Poll Options *</label>
+                          {editPollOptions.map((option, index) => (
+                            <div key={index} className="poll-option-input">
+                              <input
+                                type="text"
+                                className="input"
+                                placeholder={`Option ${index + 1}`}
+                                value={option.text}
+                                onChange={(e) => updateEditPollOption(index, e.target.value)}
+                                disabled={updatingPoll}
+                              />
+                              {editPollOptions.length > 2 && (
+                                <button
+                                  type="button"
+                                  onClick={() => removeEditPollOption(index)}
+                                  className="btn btn-danger btn-small"
+                                  disabled={updatingPoll}
+                                >
+                                  ×
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                          <button
+                            type="button"
+                            onClick={addEditPollOption}
+                            className="btn btn-secondary btn-small"
+                            disabled={updatingPoll}
+                          >
+                            + Add Option
+                          </button>
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px', marginTop: '16px' }}>
+                          <div className="form-group">
+                            <label htmlFor="edit-poll-expires">Expiration Date (optional)</label>
+                            <input
+                              id="edit-poll-expires"
+                              type="datetime-local"
+                              className="input"
+                              value={editPollExpiresAt}
+                              onChange={(e) => setEditPollExpiresAt(e.target.value)}
+                              disabled={updatingPoll}
+                            />
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="edit-poll-max-votes">Max Votes (optional)</label>
+                            <input
+                              id="edit-poll-max-votes"
+                              type="number"
+                              className="input"
+                              placeholder="No limit"
+                              value={editPollMaxVotes}
+                              onChange={(e) => setEditPollMaxVotes(e.target.value)}
+                              disabled={updatingPoll}
+                              min="1"
+                            />
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={savePollEdit}
+                            className="btn"
+                            disabled={updatingPoll || !editPollQuestion.trim() || editPollOptions.filter(opt => opt.text.trim()).length < 2}
+                          >
+                            {updatingPoll ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button
+                            onClick={cancelEditPoll}
+                            className="btn btn-secondary"
+                            disabled={updatingPoll}
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     )}
 
                     {primaryVentLink && displayedPolls.length > 0 ? (
-                      <div className="polls-list">
+                <div className="polls-list">
                         {displayedPolls.map((poll) => (
-                          <div key={poll.id} className={`poll-card ${!poll.is_active ? 'inactive' : ''}`}>
-                            <div className="poll-card-header">
-                              <h3>{poll.question}</h3>
-                              <div className="poll-actions">
-                                <button
-                                  onClick={() => togglePollActive(poll.id, poll.is_active)}
-                                  className="btn btn-small btn-secondary"
-                                >
-                                  {poll.is_active ? 'Deactivate' : 'Activate'}
-                                </button>
-                                <button
-                                  onClick={() => setSelectedPoll(selectedPoll?.id === poll.id ? null : poll)}
-                                  className="btn btn-small"
-                                >
-                                  {selectedPoll?.id === poll.id ? 'Hide Results' : 'View Results'}
-                                </button>
-                              </div>
-                            </div>
-                            <div className="poll-stats">
-                              <span className="poll-stat">📊 {poll.total_votes || 0} votes</span>
-                              <span className="poll-stat">{poll.is_active ? '✅ Active' : '⏸️ Inactive'}</span>
-                              {poll.expires_at && (
-                                <span className="poll-stat">
-                                  {new Date(poll.expires_at) > new Date() 
-                                    ? `⏰ Expires ${formatTimeAgo(poll.expires_at)}`
-                                    : '⏰ Expired'}
-                                </span>
-                              )}
-                            </div>
-                            {selectedPoll?.id === poll.id && (
-                              <div className="poll-results">
-                                <h4>Results</h4>
-                                {poll.options.map((option) => {
-                                  const voteCount = poll.vote_counts?.[option.id] || 0
-                                  const percentage = poll.total_votes && poll.total_votes > 0
-                                    ? Math.round((voteCount / poll.total_votes) * 100)
-                                    : 0
-                                  return (
-                                    <div key={option.id} className="poll-result-item">
-                                      <div className="poll-result-header">
-                                        <span className="poll-option-text">{option.option_text}</span>
-                                        <span className="poll-percentage">{percentage}%</span>
-                                      </div>
-                                      <div className="poll-result-bar">
-                                        <div
-                                          className="poll-result-fill"
-                                          style={{ width: `${percentage}%` }}
-                                        />
-                                      </div>
-                                      <div className="poll-result-count">{voteCount} votes</div>
-                                    </div>
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        ))}
+                    <div key={poll.id} className={`poll-card ${!poll.is_active ? 'inactive' : ''}`}>
+                      <div className="poll-card-header">
+                        <div style={{ flex: 1 }}>
+                          <h3>{poll.question}</h3>
+                          {poll.description && (
+                            <p style={{ marginTop: '8px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                              {poll.description}
+                            </p>
+                          )}
+                        </div>
+                        <div className="poll-actions">
+                          <button
+                            onClick={() => startEditingPoll(poll)}
+                            className="btn btn-small btn-secondary"
+                            title="Edit Poll"
+                            disabled={editingPoll !== null}
+                          >
+                            ✏️ Edit
+                          </button>
+                          <button
+                            onClick={() => duplicatePoll(poll)}
+                            className="btn btn-small btn-secondary"
+                            title="Duplicate Poll"
+                            disabled={creatingPoll}
+                          >
+                            📋 Duplicate
+                          </button>
+                          <button
+                            onClick={() => exportPollResults(poll)}
+                            className="btn btn-small btn-secondary"
+                            title="Export Results"
+                          >
+                            📥 Export
+                          </button>
+                          <button
+                            onClick={() => togglePollActive(poll.id, poll.is_active)}
+                            className="btn btn-small btn-secondary"
+                            title={poll.is_active ? 'Deactivate' : 'Activate'}
+                          >
+                            {poll.is_active ? '⏸️' : '▶️'}
+                          </button>
+                          <button
+                            onClick={() => setSelectedPoll(selectedPoll?.id === poll.id ? null : poll)}
+                            className="btn btn-small"
+                          >
+                            {selectedPoll?.id === poll.id ? '👁️ Hide' : '📊 Results'}
+                          </button>
+                          <button
+                            onClick={() => deletePoll(poll.id)}
+                            className="btn btn-small btn-danger"
+                            title="Delete Poll"
+                            disabled={deletingPoll === poll.id}
+                          >
+                            {deletingPoll === poll.id ? '...' : '🗑️'}
+                          </button>
+                        </div>
                       </div>
-                    ) : primaryVentLink && !showCreatePoll && (
+                      <div className="poll-stats">
+                        <span className="poll-stat">📊 {poll.total_votes || 0} votes</span>
+                        <span className="poll-stat">{poll.is_active ? '✅ Active' : '⏸️ Inactive'}</span>
+                        {poll.max_votes && (
+                          <span className="poll-stat">
+                            🎯 Max: {poll.max_votes} {poll.total_votes && poll.total_votes >= poll.max_votes ? '(Reached)' : ''}
+                          </span>
+                        )}
+                        {poll.expires_at && (
+                          <span className="poll-stat">
+                            {new Date(poll.expires_at) > new Date() 
+                              ? `⏰ Expires ${formatTimeAgo(poll.expires_at)}`
+                              : '⏰ Expired'}
+                          </span>
+                        )}
+                        <span className="poll-stat">📅 Created {formatTimeAgo(poll.created_at)}</span>
+                      </div>
+                      {selectedPoll?.id === poll.id && (
+                        <div className="poll-results">
+                          <h4>Results</h4>
+                          {poll.options.map((option) => {
+                            const voteCount = poll.vote_counts?.[option.id] || 0
+                            const percentage = poll.total_votes && poll.total_votes > 0
+                              ? Math.round((voteCount / poll.total_votes) * 100)
+                              : 0
+                            return (
+                              <div key={option.id} className="poll-result-item">
+                                <div className="poll-result-header">
+                                  <span className="poll-option-text">{option.option_text}</span>
+                                  <span className="poll-percentage">{percentage}%</span>
+                                </div>
+                                <div className="poll-result-bar">
+                                  <div
+                                    className="poll-result-fill"
+                                    style={{ width: `${percentage}%` }}
+                                  />
+                                </div>
+                                <div className="poll-result-count">{voteCount} votes</div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                    ) : primaryVentLink && !showCreatePoll && !editingPoll && (
                       <div className="empty-state-compact">
-                        <div className="empty-icon">📊</div>
+                  <div className="empty-icon">📊</div>
                         <p>No polls yet</p>
                         <button
-                          onClick={() => setShowCreatePoll(true)}
+                          onClick={() => {
+                            if (editingPoll) cancelEditPoll()
+                            setShowCreatePoll(true)
+                          }}
                           className="btn"
                         >
                           Create Your First Poll
                         </button>
+                </div>
+              )}
+            </div>
+          )}
+
+                {/* Q&A Sessions View */}
+                {hubView === 'qa' && (
+                  <div className="hub-qa-view">
+                    <div className="hub-section-header">
+                      <h3>Q&A / AMA Sessions</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Session</button>
+                )}
+              </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">💬</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                      </div>
+                    ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">💬</div>
+                        <p>No Q&A sessions yet</p>
+                        <p className="empty-hint">Host Ask Me Anything sessions with your community</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Challenges View */}
+                {hubView === 'challenges' && (
+                  <div className="hub-challenges-view">
+                    <div className="hub-section-header">
+                      <h3>Challenges & Contests</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Challenge</button>
+                      )}
+                  </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🏆</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                  </div>
+                    ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🏆</div>
+                        <p>No challenges yet</p>
+                        <p className="empty-hint">Create contests, giveaways, and challenges for your community</p>
+                </div>
+                    )}
+                    </div>
+                )}
+
+                {/* Community Voting View */}
+                {hubView === 'voting' && (
+                  <div className="hub-voting-view">
+                    <div className="hub-section-header">
+                      <h3>Community Voting</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Vote</button>
+                      )}
+                  </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🗳️</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                      </div>
+                    ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🗳️</div>
+                        <p>No votes yet</p>
+                        <p className="empty-hint">Let your community vote on decisions and ideas</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Feedback Forms View */}
+                {hubView === 'feedback' && (
+                  <div className="hub-feedback-view">
+                    <div className="hub-section-header">
+                      <h3>Feedback Forms</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Form</button>
+                      )}
+                    </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">📝</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                </div>
+              ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">📝</div>
+                        <p>No feedback forms yet</p>
+                        <p className="empty-hint">Create surveys and feedback forms for your community</p>
+                </div>
+              )}
+            </div>
+                )}
+
+                {/* Community Highlights View */}
+                {hubView === 'highlights' && (
+                  <div className="hub-highlights-view">
+                    <div className="hub-section-header">
+                      <h3>Community Highlights</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Highlight</button>
+                      )}
+                        </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">⭐</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                      </div>
+                    ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">⭐</div>
+                        <p>No highlights yet</p>
+                        <p className="empty-hint">Feature top messages and showcase community stories</p>
+                    </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Live Reactions View */}
+                {hubView === 'reactions' && (
+                  <div className="hub-reactions-view">
+                    <div className="hub-section-header">
+                      <h3>Live Reactions</h3>
+                    </div>
+                    <div className="empty-state-compact">
+                      <div className="empty-icon">😊</div>
+                      <p>Reactions are enabled</p>
+                      <p className="empty-hint">Your community can react to messages with emojis</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Community Goals View */}
+                {hubView === 'goals' && (
+                  <div className="hub-goals-view">
+                    <div className="hub-section-header">
+                      <h3>Community Goals</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Goal</button>
+                      )}
+                    </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🎯</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                </div>
+              ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🎯</div>
+                        <p>No goals yet</p>
+                        <p className="empty-hint">Set and track community milestones</p>
+                </div>
+              )}
+            </div>
+                )}
+
+                {/* Events & Announcements View */}
+                {hubView === 'events' && (
+                  <div className="hub-events-view">
+                    <div className="hub-section-header">
+                      <h3>Events & Announcements</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Event</button>
+                      )}
+          </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">📅</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                      </div>
+                    ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">📅</div>
+                        <p>No events yet</p>
+                        <p className="empty-hint">Schedule community events and announcements</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Community Wall View */}
+                {hubView === 'wall' && (
+                  <div className="hub-wall-view">
+                    <div className="hub-section-header">
+                      <h3>Community Wall</h3>
+                    </div>
+                    <div className="empty-state-compact">
+                      <div className="empty-icon">🧱</div>
+                      <p>Community Wall</p>
+                      <p className="empty-hint">Showcase featured messages from your community</p>
+                    </div>
+                  </div>
+                )}
+
+                {/* Collaborative Projects View */}
+                {hubView === 'projects' && (
+                  <div className="hub-projects-view">
+                    <div className="hub-section-header">
+                      <h3>Collaborative Projects</h3>
+                      {primaryVentLink && (
+                        <button className="btn btn-secondary">+ New Project</button>
+                      )}
+                    </div>
+                    {!primaryVentLink ? (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🤝</div>
+                        <p>Create a vent link first</p>
+                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
+                      </div>
+                    ) : (
+                      <div className="empty-state-compact">
+                        <div className="empty-icon">🤝</div>
+                        <p>No projects yet</p>
+                        <p className="empty-hint">Start community-driven projects and collaborations</p>
                       </div>
                     )}
                   </div>
@@ -2064,180 +3081,216 @@ export default function Dashboard() {
             {/* Message Detail Panel - Right Side */}
             {selectedMessage && (
               <div className="card message-detail">
-                <div className="message-detail-header">
-                  <h3>Message</h3>
+                <div className="message-detail-header-modern">
+                  <div className="message-header-content">
+                    <h3 className="message-title">Message</h3>
+                    <div className="message-header-meta">
+                      <span className="message-time-icon">🕐</span>
+                      <span className="message-time">{formatTimeAgo(selectedMessage.created_at)}</span>
+                    </div>
+                  </div>
                   <button
                     onClick={() => {
                       setSelectedMessage(null)
                       setAiReplies(null)
                       setEditingNote(null)
                     }}
-                    className="btn-close"
+                    className="btn-close-modern"
+                    title="Close"
                   >
                     ×
                   </button>
                 </div>
-                <div className="message-body">
+                
+                <div className="message-body-modern">
                   <p>{selectedMessage.body}</p>
-                </div>
-                <div className="message-detail-meta">
                   {selectedMessage.mood && (
-                    <span className="badge">Mood: {selectedMessage.mood}</span>
-                  )}
-                  <span className="timestamp">{formatTimeAgo(selectedMessage.created_at)}</span>
-                </div>
-
-                {/* Folders Section */}
-                <div className="message-tags-section">
-                  <h4>Folders</h4>
-                  {messageFolders.length === 0 ? (
-                    <p style={{ color: 'var(--text-secondary)', fontSize: '14px' }}>No folders yet. Create one in the messages view.</p>
-                  ) : (
-                    <div className="message-tags-list">
-                      {messageFolders.map(folder => {
-                        const isAssigned = messageFolderAssignments[selectedMessage.id]?.includes(folder.id)
-                        return (
-                          <span
-                            key={folder.id}
-                            className={`message-tag ${isAssigned ? 'active' : ''}`}
-                            onClick={() => {
-                              if (isAssigned) {
-                                removeMessageFromFolder(selectedMessage.id, folder.id)
-                              } else {
-                                assignMessageToFolder(selectedMessage.id, folder.id)
-                              }
-                            }}
-                            style={{ cursor: 'pointer' }}
-                          >
-                            📁 {folder.folder_name}
-                            {isAssigned && <span style={{ marginLeft: '4px' }}>✓</span>}
-                          </span>
-                        )
-                      })}
+                    <div className="message-mood-badge">
+                      <span className="mood-icon">😊</span>
+                      <span>{selectedMessage.mood}</span>
                     </div>
                   )}
                 </div>
 
-                {/* Tags Section */}
-                <div className="message-tags-section">
-                  <h4>Tags</h4>
-                  <div className="message-tags-list">
-                    {messageTags[selectedMessage.id]?.map((tag, idx) => (
-                      <span key={idx} className="message-tag">
-                        #{tag}
-                        <button
-                          className="tag-remove"
-                          onClick={() => removeTagFromMessage(selectedMessage.id, tag)}
-                        >
-                          ×
-                        </button>
-                      </span>
-                    ))}
-                  </div>
-                  <div className="add-tag-input">
-                    <input
-                      type="text"
-                      placeholder="Add tag..."
-                      onKeyPress={(e) => {
-                        if (e.key === 'Enter') {
-                          const input = e.target as HTMLInputElement
-                          addTagToMessage(selectedMessage.id, input.value)
-                          input.value = ''
-                        }
-                      }}
-                      className="tag-input"
-                    />
-                  </div>
-                </div>
-
-                {/* Notes Section */}
-                <div className="message-notes-section">
-                  <h4>Private Notes</h4>
-                  {editingNote === selectedMessage.id ? (
-                    <div className="note-editor">
-                      <textarea
-                        value={noteText}
-                        onChange={(e) => setNoteText(e.target.value)}
-                        placeholder="Add a private note about this message..."
-                        className="note-textarea"
-                        rows={3}
-                      />
-                      <div className="note-actions">
-                        <button
-                          className="btn btn-small"
-                          onClick={() => saveNote(selectedMessage.id)}
-                        >
-                          Save
-                        </button>
-                        <button
-                          className="btn btn-small btn-secondary"
-                          onClick={() => {
-                            setEditingNote(null)
-                            setNoteText('')
-                          }}
-                        >
-                          Cancel
-                        </button>
-                      </div>
+                {/* Info Sections */}
+                <div className="message-info-sections">
+                  {/* Folders Section */}
+                  <div className="message-info-card">
+                    <div className="info-card-header">
+                      <span className="info-card-icon">📁</span>
+                      <h4 className="info-card-title">Folders</h4>
                     </div>
-                  ) : (
-                    <div className="note-display">
-                      {messageNotes[selectedMessage.id] ? (
-                        <div>
-                          <p className="note-text">{messageNotes[selectedMessage.id]}</p>
-                          <button
-                            className="btn btn-small btn-secondary"
-                            onClick={() => {
-                              setEditingNote(selectedMessage.id)
-                              setNoteText(messageNotes[selectedMessage.id] || '')
-                            }}
-                          >
-                            Edit Note
-                          </button>
-                        </div>
+                    <div className="info-card-content">
+                      {messageFolders.length === 0 ? (
+                        <p className="info-empty-state">No folders yet. Create one in the messages view.</p>
                       ) : (
-                        <button
-                          className="btn btn-small btn-secondary"
-                          onClick={() => {
-                            setEditingNote(selectedMessage.id)
-                            setNoteText('')
-                          }}
-                        >
-                          Add Note
-                        </button>
+                        <div className="message-tags-list-modern">
+                          {messageFolders.map(folder => {
+                            const isAssigned = messageFolderAssignments[selectedMessage.id]?.includes(folder.id)
+                            return (
+                              <span
+                                key={folder.id}
+                                className={`message-tag-modern folder-tag ${isAssigned ? 'active' : ''}`}
+                                onClick={() => {
+                                  if (isAssigned) {
+                                    removeMessageFromFolder(selectedMessage.id, folder.id)
+                                  } else {
+                                    assignMessageToFolder(selectedMessage.id, folder.id)
+                                  }
+                                }}
+                              >
+                                {isAssigned ? '✓' : '○'} {folder.folder_name}
+                              </span>
+                            )
+                          })}
+                        </div>
                       )}
                     </div>
-                  )}
+                  </div>
+
+                  {/* Tags Section */}
+                  <div className="message-info-card">
+                    <div className="info-card-header">
+                      <span className="info-card-icon">🏷️</span>
+                      <h4 className="info-card-title">Tags</h4>
+                    </div>
+                    <div className="info-card-content">
+                      <div className="message-tags-list-modern">
+                        {messageTags[selectedMessage.id]?.map((tag, idx) => (
+                          <span key={idx} className="message-tag-modern">
+                            #{tag}
+                  <button
+                              className="tag-remove-modern"
+                              onClick={() => removeTagFromMessage(selectedMessage.id, tag)}
+                              title="Remove tag"
+                  >
+                              ×
+                  </button>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="add-tag-input-modern">
+                        <input
+                          type="text"
+                          placeholder="Add tag..."
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              const input = e.target as HTMLInputElement
+                              if (input.value.trim()) {
+                                addTagToMessage(selectedMessage.id, input.value.trim())
+                                input.value = ''
+                              }
+                            }
+                          }}
+                          className="tag-input-modern"
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Notes Section */}
+                  <div className="message-info-card">
+                    <div className="info-card-header">
+                      <span className="info-card-icon">📝</span>
+                      <h4 className="info-card-title">Private Notes</h4>
+                    </div>
+                    <div className="info-card-content">
+                      {editingNote === selectedMessage.id ? (
+                        <div className="note-editor-modern">
+                          <textarea
+                            value={noteText}
+                            onChange={(e) => setNoteText(e.target.value)}
+                            placeholder="Add a private note about this message..."
+                            className="note-textarea-modern"
+                            rows={3}
+                          />
+                          <div className="note-actions-modern">
+                  <button
+                              className="btn btn-small"
+                              onClick={() => saveNote(selectedMessage.id)}
+                  >
+                              Save
+                  </button>
+                  <button
+                              className="btn btn-small btn-secondary"
+                              onClick={() => {
+                                setEditingNote(null)
+                                setNoteText('')
+                              }}
+                            >
+                              Cancel
+                  </button>
+                </div>
+                  </div>
+                      ) : (
+                        <div className="note-display-modern">
+                          {messageNotes[selectedMessage.id] ? (
+                            <div>
+                              <p className="note-text-modern">{messageNotes[selectedMessage.id]}</p>
+                              <button
+                                className="btn btn-small btn-secondary"
+                                onClick={() => {
+                                  setEditingNote(selectedMessage.id)
+                                  setNoteText(messageNotes[selectedMessage.id] || '')
+                                }}
+                              >
+                                Edit Note
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              className="btn btn-small btn-secondary"
+                              onClick={() => {
+                                setEditingNote(selectedMessage.id)
+                                setNoteText('')
+                              }}
+                            >
+                              Add Note
+                            </button>
+                )}
+              </div>
+            )}
+          </div>
+                </div>
                 </div>
 
-                <div className="message-actions">
-                  <button
+                {/* Actions */}
+                <div className="message-actions-modern">
+                    <button
                     onClick={() => markAsRead(selectedMessage.id, !selectedMessage.is_read)}
-                    className="btn btn-secondary"
-                  >
-                    {selectedMessage.is_read ? 'Mark as unread' : 'Mark as read'}
-                  </button>
-                  <button
+                    className="action-btn-modern"
+                    title={selectedMessage.is_read ? 'Mark as unread' : 'Mark as read'}
+                    >
+                    <span className="action-icon">✓</span>
+                    <span className="action-label">{selectedMessage.is_read ? 'Mark as unread' : 'Mark as read'}</span>
+                    </button>
+                    <button
                     onClick={() => flagMessage(selectedMessage.id)}
-                    className="btn btn-danger"
+                    className="action-btn-modern danger"
                     disabled={selectedMessage.is_flagged}
+                    title={selectedMessage.is_flagged ? 'Already flagged' : 'Flag as abusive'}
                   >
-                    {selectedMessage.is_flagged ? 'Flagged' : 'Flag as abusive'}
-                  </button>
-                  <button
-                    className="btn"
+                    <span className="action-icon">🚩</span>
+                    <span className="action-label">{selectedMessage.is_flagged ? 'Flagged' : 'Flag as abusive'}</span>
+                    </button>
+                    <button
+                    className="action-btn-modern"
                     onClick={() => handleGenerateReply(selectedMessage.body)}
                     disabled={loadingAi}
+                    title="Generate AI reply"
                   >
-                    {loadingAi ? 'Generating...' : 'Generate reply'}
-                  </button>
-                  <button
-                    className="btn btn-secondary"
+                    <span className="action-icon">🤖</span>
+                    <span className="action-label">{loadingAi ? 'Generating...' : 'Generate reply'}</span>
+                    </button>
+                    <button
+                    className="action-btn-modern primary"
                     onClick={() => setShowResponseModal(true)}
-                  >
-                    Send Private Response
-                  </button>
-                </div>
+                    title="Send private response"
+                    >
+                    <span className="action-icon">💬</span>
+                    <span className="action-label">Send Private Response</span>
+                    </button>
+                  </div>
 
                 {/* AI Replies Section */}
                 {aiReplies && (
@@ -2246,7 +3299,7 @@ export default function Dashboard() {
                     <div className="ai-output">{aiReplies}</div>
                   </div>
                 )}
-              </div>
+                </div>
             )}
 
             {/* Response Modal */}
@@ -2261,7 +3314,7 @@ export default function Dashboard() {
                     >
                       ×
                     </button>
-                  </div>
+                </div>
                   <div className="modal-body">
                     <p className="modal-hint">
                       Note: Anonymous senders cannot receive responses directly. This response will be saved for your records.
@@ -2281,7 +3334,7 @@ export default function Dashboard() {
                             <option key={t.id} value={t.id}>{t.name}</option>
                           ))}
                         </select>
-                      </div>
+                          </div>
                     )}
                     <textarea
                       value={responseText}
@@ -2292,7 +3345,7 @@ export default function Dashboard() {
                     />
                   </div>
                   <div className="modal-footer">
-                    <button
+                            <button
                       className="btn btn-secondary"
                       onClick={() => {
                         setShowResponseModal(false)
@@ -2300,19 +3353,19 @@ export default function Dashboard() {
                       }}
                     >
                       Cancel
-                    </button>
-                    <button
+                            </button>
+                            <button
                       className="btn"
                       onClick={() => sendResponse(selectedMessage.id)}
                       disabled={!responseText.trim()}
                     >
                       Save Response
-                    </button>
-                  </div>
+                            </button>
+                          </div>
+                        </div>
                 </div>
-              </div>
-            )}
-          </div>
+              )}
+            </div>
           ) : null}
             </>
           )}

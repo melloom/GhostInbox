@@ -152,3 +152,161 @@ export interface PollTemplate {
   updated_at: string
 }
 
+// Community Engagement Features Types
+export interface QASession {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  is_active: boolean
+  starts_at: string | null
+  ends_at: string | null
+  created_at: string
+}
+
+export interface QAQuestion {
+  id: string
+  qa_session_id: string
+  question_text: string
+  ip_hash: string | null
+  is_answered: boolean
+  answer_text: string | null
+  answered_at: string | null
+  created_at: string
+}
+
+export interface Challenge {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  challenge_type: 'contest' | 'giveaway' | 'challenge'
+  is_active: boolean
+  starts_at: string | null
+  ends_at: string | null
+  prize_description: string | null
+  rules: string | null
+  created_at: string
+}
+
+export interface ChallengeSubmission {
+  id: string
+  challenge_id: string
+  submission_text: string
+  ip_hash: string | null
+  is_winner: boolean
+  created_at: string
+}
+
+export interface CommunityVote {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  is_active: boolean
+  ends_at: string | null
+  created_at: string
+}
+
+export interface VoteOption {
+  id: string
+  vote_id: string
+  option_text: string
+  display_order: number
+  created_at: string
+}
+
+export interface VoteResponse {
+  id: string
+  vote_id: string
+  option_id: string
+  ip_hash: string | null
+  created_at: string
+}
+
+export interface CommunityVoteWithOptions extends CommunityVote {
+  options: VoteOption[]
+  vote_counts?: { [optionId: string]: number }
+  total_votes?: number
+}
+
+export interface FeedbackForm {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  form_type: 'survey' | 'feedback' | 'feature_request'
+  is_active: boolean
+  created_at: string
+}
+
+export interface FeedbackResponse {
+  id: string
+  form_id: string
+  response_text: string
+  ip_hash: string | null
+  created_at: string
+}
+
+export interface CommunityHighlight {
+  id: string
+  vent_link_id: string
+  message_id: string | null
+  title: string | null
+  highlight_text: string | null
+  is_featured: boolean
+  display_order: number
+  created_at: string
+}
+
+export interface MessageReaction {
+  id: string
+  message_id: string
+  reaction_type: string
+  ip_hash: string | null
+  created_at: string
+}
+
+export interface CommunityGoal {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  goal_type: 'messages' | 'engagement' | 'polls' | 'custom'
+  target_value: number
+  current_value: number
+  is_active: boolean
+  deadline: string | null
+  created_at: string
+}
+
+export interface CommunityEvent {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  event_type: 'event' | 'announcement' | 'update'
+  event_date: string | null
+  is_pinned: boolean
+  is_active: boolean
+  created_at: string
+}
+
+export interface CollaborativeProject {
+  id: string
+  vent_link_id: string
+  title: string
+  description: string | null
+  project_type: 'idea' | 'project' | 'collaboration'
+  is_active: boolean
+  created_at: string
+}
+
+export interface ProjectContribution {
+  id: string
+  project_id: string
+  contribution_text: string
+  ip_hash: string | null
+  created_at: string
+}
+
