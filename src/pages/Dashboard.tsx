@@ -180,41 +180,55 @@ export default function Dashboard() {
             filter: `vent_link_id=eq.${linkId}`
           },
           async (payload) => {
-            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-              // Fetch full poll data with options and votes
-              const poll = payload.new as any
-              const { data: optionsData } = await supabase
-                .from('poll_options')
-                .select('*')
-                .eq('poll_id', poll.id)
-                .order('display_order', { ascending: true })
+            try {
+              if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+                // Fetch full poll data with options and votes
+                const poll = payload.new as any
+                const { data: optionsData, error: optionsError } = await supabase
+                  .from('poll_options')
+                  .select('*')
+                  .eq('poll_id', poll.id)
+                  .order('display_order', { ascending: true })
 
-              const { data: votesData } = await supabase
-                .from('poll_votes')
-                .select('option_id')
-                .eq('poll_id', poll.id)
+                if (optionsError) {
+                  console.error('Error fetching poll options:', optionsError)
+                  return
+                }
 
-              const voteCounts: { [key: string]: number } = {}
-              votesData?.forEach((vote) => {
-                voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
-              })
+                const { data: votesData, error: votesError } = await supabase
+                  .from('poll_votes')
+                  .select('option_id')
+                  .eq('poll_id', poll.id)
 
-              const pollWithData = {
-                ...poll,
-                options: optionsData || [],
-                vote_counts: voteCounts,
-                total_votes: votesData?.length || 0,
-              } as PollWithOptions
+                if (votesError) {
+                  console.error('Error fetching poll votes:', votesError)
+                  return
+                }
 
-              if (payload.eventType === 'INSERT') {
-                setPolls((prev) => [pollWithData, ...prev])
-              } else {
-                setPolls((prev) =>
-                  prev.map((p) => (p.id === poll.id ? pollWithData : p))
-                )
+                const voteCounts: { [key: string]: number } = {}
+                votesData?.forEach((vote) => {
+                  voteCounts[vote.option_id] = (voteCounts[vote.option_id] || 0) + 1
+                })
+
+                const pollWithData = {
+                  ...poll,
+                  options: optionsData || [],
+                  vote_counts: voteCounts,
+                  total_votes: votesData?.length || 0,
+                } as PollWithOptions
+
+                if (payload.eventType === 'INSERT') {
+                  setPolls((prev) => [pollWithData, ...prev])
+                } else {
+                  setPolls((prev) =>
+                    prev.map((p) => (p.id === poll.id ? pollWithData : p))
+                  )
+                }
+              } else if (payload.eventType === 'DELETE') {
+                setPolls((prev) => prev.filter((p) => p.id !== payload.old.id))
               }
-            } else if (payload.eventType === 'DELETE') {
-              setPolls((prev) => prev.filter((p) => p.id !== payload.old.id))
+            } catch (err) {
+              console.error('Error in poll subscription callback:', err)
             }
           }
         )
@@ -232,32 +246,41 @@ export default function Dashboard() {
           table: 'poll_votes'
         },
         async (payload) => {
-          const vote = payload.new as any
-          // Fetch updated vote counts for this poll
-          const { data: votesData } = await supabase
-            .from('poll_votes')
-            .select('option_id')
-            .eq('poll_id', vote.poll_id)
+          try {
+            const vote = payload.new as any
+            // Fetch updated vote counts for this poll
+            const { data: votesData, error: votesError } = await supabase
+              .from('poll_votes')
+              .select('option_id')
+              .eq('poll_id', vote.poll_id)
 
-          if (votesData) {
-            const voteCounts: { [key: string]: number } = {}
-            votesData.forEach((v) => {
-              voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1
-            })
+            if (votesError) {
+              console.error('Error fetching vote counts:', votesError)
+              return
+            }
 
-            // Update the poll's vote counts
-            setPolls((prev) =>
-              prev.map((poll) => {
-                if (poll.id === vote.poll_id) {
-                  return {
-                    ...poll,
-                    vote_counts: voteCounts,
-                    total_votes: votesData.length,
-                  }
-                }
-                return poll
+            if (votesData) {
+              const voteCounts: { [key: string]: number } = {}
+              votesData.forEach((v) => {
+                voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1
               })
-            )
+
+              // Update the poll's vote counts
+              setPolls((prev) =>
+                prev.map((poll) => {
+                  if (poll.id === vote.poll_id) {
+                    return {
+                      ...poll,
+                      vote_counts: voteCounts,
+                      total_votes: votesData.length,
+                    }
+                  }
+                  return poll
+                })
+              )
+            }
+          } catch (err) {
+            console.error('Error in vote subscription callback:', err)
           }
         }
       )
@@ -287,31 +310,39 @@ export default function Dashboard() {
             filter: `vent_link_id=eq.${linkId}`
           },
           async (payload) => {
-            if (payload.eventType === 'INSERT') {
-              const challenge = payload.new as Challenge
-              setChallenges((prev) => [challenge, ...prev])
-              // Fetch submissions for new challenge
-              const { data: submissionsData } = await supabase
-                .from('challenge_submissions')
-                .select('*')
-                .eq('challenge_id', challenge.id)
-                .order('created_at', { ascending: false })
-              setChallengeSubmissions((prev) => ({
-                ...prev,
-                [challenge.id]: submissionsData || []
-              }))
-            } else if (payload.eventType === 'UPDATE') {
-              const challenge = payload.new as Challenge
-              setChallenges((prev) =>
-                prev.map((c) => (c.id === challenge.id ? challenge : c))
-              )
-            } else if (payload.eventType === 'DELETE') {
-              setChallenges((prev) => prev.filter((c) => c.id !== payload.old.id))
-              setChallengeSubmissions((prev) => {
-                const updated = { ...prev }
-                delete updated[payload.old.id]
-                return updated
-              })
+            try {
+              if (payload.eventType === 'INSERT') {
+                const challenge = payload.new as Challenge
+                setChallenges((prev) => [challenge, ...prev])
+                // Fetch submissions for new challenge
+                const { data: submissionsData, error: submissionsError } = await supabase
+                  .from('challenge_submissions')
+                  .select('*')
+                  .eq('challenge_id', challenge.id)
+                  .order('created_at', { ascending: false })
+                if (submissionsError) {
+                  console.error('Error fetching challenge submissions:', submissionsError)
+                } else {
+                  setChallengeSubmissions((prev) => ({
+                    ...prev,
+                    [challenge.id]: submissionsData || []
+                  }))
+                }
+              } else if (payload.eventType === 'UPDATE') {
+                const challenge = payload.new as Challenge
+                setChallenges((prev) =>
+                  prev.map((c) => (c.id === challenge.id ? challenge : c))
+                )
+              } else if (payload.eventType === 'DELETE') {
+                setChallenges((prev) => prev.filter((c) => c.id !== payload.old.id))
+                setChallengeSubmissions((prev) => {
+                  const updated = { ...prev }
+                  delete updated[payload.old.id]
+                  return updated
+                })
+              }
+            } catch (err) {
+              console.error('Error in challenge subscription callback:', err)
             }
           }
         )
@@ -329,28 +360,37 @@ export default function Dashboard() {
           table: 'challenge_submissions'
         },
         async (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const submission = payload.new as ChallengeSubmission
-            // Fetch all submissions for this challenge to update the list
-            const { data: submissionsData } = await supabase
-              .from('challenge_submissions')
-              .select('*')
-              .eq('challenge_id', submission.challenge_id)
-              .order('created_at', { ascending: false })
-            
-            setChallengeSubmissions((prev) => ({
-              ...prev,
-              [submission.challenge_id]: submissionsData || []
-            }))
-          } else if (payload.eventType === 'DELETE') {
-            const oldSubmission = payload.old as ChallengeSubmission
-            setChallengeSubmissions((prev) => {
-              const current = prev[oldSubmission.challenge_id] || []
-              return {
-                ...prev,
-                [oldSubmission.challenge_id]: current.filter(s => s.id !== oldSubmission.id)
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const submission = payload.new as ChallengeSubmission
+              // Fetch all submissions for this challenge to update the list
+              const { data: submissionsData, error: submissionsError } = await supabase
+                .from('challenge_submissions')
+                .select('*')
+                .eq('challenge_id', submission.challenge_id)
+                .order('created_at', { ascending: false })
+              
+              if (submissionsError) {
+                console.error('Error fetching challenge submissions:', submissionsError)
+                return
               }
-            })
+              
+              setChallengeSubmissions((prev) => ({
+                ...prev,
+                [submission.challenge_id]: submissionsData || []
+              }))
+            } else if (payload.eventType === 'DELETE') {
+              const oldSubmission = payload.old as ChallengeSubmission
+              setChallengeSubmissions((prev) => {
+                const current = prev[oldSubmission.challenge_id] || []
+                return {
+                  ...prev,
+                  [oldSubmission.challenge_id]: current.filter(s => s.id !== oldSubmission.id)
+                }
+              })
+            }
+          } catch (err) {
+            console.error('Error in challenge submission subscription callback:', err)
           }
         }
       )
@@ -384,31 +424,39 @@ export default function Dashboard() {
             filter: `vent_link_id=eq.${linkId}`
           },
           async (payload) => {
-            if (payload.eventType === 'INSERT') {
-              const raffle = payload.new as Raffle
-              setRaffles((prev) => [raffle, ...prev])
-              // Fetch entries for new raffle
-              const { data: entriesData } = await supabase
-                .from('raffle_entries')
-                .select('*')
-                .eq('raffle_id', raffle.id)
-                .order('created_at', { ascending: false })
-              setRaffleEntries((prev) => ({
-                ...prev,
-                [raffle.id]: entriesData || []
-              }))
-            } else if (payload.eventType === 'UPDATE') {
-              const raffle = payload.new as Raffle
-              setRaffles((prev) =>
-                prev.map((r) => (r.id === raffle.id ? raffle : r))
-              )
-            } else if (payload.eventType === 'DELETE') {
-              setRaffles((prev) => prev.filter((r) => r.id !== payload.old.id))
-              setRaffleEntries((prev) => {
-                const updated = { ...prev }
-                delete updated[payload.old.id]
-                return updated
-              })
+            try {
+              if (payload.eventType === 'INSERT') {
+                const raffle = payload.new as Raffle
+                setRaffles((prev) => [raffle, ...prev])
+                // Fetch entries for new raffle
+                const { data: entriesData, error: entriesError } = await supabase
+                  .from('raffle_entries')
+                  .select('*')
+                  .eq('raffle_id', raffle.id)
+                  .order('created_at', { ascending: false })
+                if (entriesError) {
+                  console.error('Error fetching raffle entries:', entriesError)
+                } else {
+                  setRaffleEntries((prev) => ({
+                    ...prev,
+                    [raffle.id]: entriesData || []
+                  }))
+                }
+              } else if (payload.eventType === 'UPDATE') {
+                const raffle = payload.new as Raffle
+                setRaffles((prev) =>
+                  prev.map((r) => (r.id === raffle.id ? raffle : r))
+                )
+              } else if (payload.eventType === 'DELETE') {
+                setRaffles((prev) => prev.filter((r) => r.id !== payload.old.id))
+                setRaffleEntries((prev) => {
+                  const updated = { ...prev }
+                  delete updated[payload.old.id]
+                  return updated
+                })
+              }
+            } catch (err) {
+              console.error('Error in raffle subscription callback:', err)
             }
           }
         )
@@ -426,28 +474,37 @@ export default function Dashboard() {
           table: 'raffle_entries'
         },
         async (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const entry = payload.new as RaffleEntry
-            // Fetch all entries for this raffle to update the list
-            const { data: entriesData } = await supabase
-              .from('raffle_entries')
-              .select('*')
-              .eq('raffle_id', entry.raffle_id)
-              .order('created_at', { ascending: false })
-            
-            setRaffleEntries((prev) => ({
-              ...prev,
-              [entry.raffle_id]: entriesData || []
-            }))
-          } else if (payload.eventType === 'DELETE') {
-            const oldEntry = payload.old as RaffleEntry
-            setRaffleEntries((prev) => {
-              const current = prev[oldEntry.raffle_id] || []
-              return {
-                ...prev,
-                [oldEntry.raffle_id]: current.filter(e => e.id !== oldEntry.id)
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const entry = payload.new as RaffleEntry
+              // Fetch all entries for this raffle to update the list
+              const { data: entriesData, error: entriesError } = await supabase
+                .from('raffle_entries')
+                .select('*')
+                .eq('raffle_id', entry.raffle_id)
+                .order('created_at', { ascending: false })
+              
+              if (entriesError) {
+                console.error('Error fetching raffle entries:', entriesError)
+                return
               }
-            })
+              
+              setRaffleEntries((prev) => ({
+                ...prev,
+                [entry.raffle_id]: entriesData || []
+              }))
+            } else if (payload.eventType === 'DELETE') {
+              const oldEntry = payload.old as RaffleEntry
+              setRaffleEntries((prev) => {
+                const current = prev[oldEntry.raffle_id] || []
+                return {
+                  ...prev,
+                  [oldEntry.raffle_id]: current.filter(e => e.id !== oldEntry.id)
+                }
+              })
+            }
+          } catch (err) {
+            console.error('Error in raffle entry subscription callback:', err)
           }
         }
       )

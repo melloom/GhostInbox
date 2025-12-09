@@ -223,40 +223,50 @@ export default function VentPage() {
           filter: `vent_link_id=eq.${ventLink.id}`
         },
         async (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const challenge = payload.new as Challenge
-            if (challenge.is_active) {
-              // Fetch updated challenge with submissions
-              const { data: submissionsData } = await supabase
-                .from('challenge_submissions')
-                .select('*')
-                .eq('challenge_id', challenge.id)
-                .order('created_at', { ascending: false })
-              
-              setActiveChallenges((prev) => {
-                const existing = prev.find(c => c.id === challenge.id)
-                if (existing) {
-                  return prev.map(c => c.id === challenge.id ? challenge : c)
-                } else {
-                  return [...prev, challenge]
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const challenge = payload.new as Challenge
+              if (challenge.is_active) {
+                // Fetch updated challenge with submissions
+                const { data: submissionsData, error: submissionsError } = await supabase
+                  .from('challenge_submissions')
+                  .select('*')
+                  .eq('challenge_id', challenge.id)
+                  .order('created_at', { ascending: false })
+                
+                if (submissionsError) {
+                  console.error('Error fetching challenge submissions:', submissionsError)
                 }
-              })
               
-              setChallengeSubmissions((prev) => ({
-                ...prev,
-                [challenge.id]: submissionsData || []
-              }))
-            } else {
-              // Remove inactive challenge
-              setActiveChallenges((prev) => prev.filter(c => c.id !== challenge.id))
+                setActiveChallenges((prev) => {
+                  const existing = prev.find(c => c.id === challenge.id)
+                  if (existing) {
+                    return prev.map(c => c.id === challenge.id ? challenge : c)
+                  } else {
+                    return [...prev, challenge]
+                  }
+                })
+              
+                if (!submissionsError) {
+                  setChallengeSubmissions((prev) => ({
+                    ...prev,
+                    [challenge.id]: submissionsData || []
+                  }))
+                }
+              } else {
+                // Remove inactive challenge
+                setActiveChallenges((prev) => prev.filter(c => c.id !== challenge.id))
+              }
+            } else if (payload.eventType === 'DELETE') {
+              setActiveChallenges((prev) => prev.filter(c => c.id !== payload.old.id))
+              setChallengeSubmissions((prev) => {
+                const updated = { ...prev }
+                delete updated[payload.old.id]
+                return updated
+              })
             }
-          } else if (payload.eventType === 'DELETE') {
-            setActiveChallenges((prev) => prev.filter(c => c.id !== payload.old.id))
-            setChallengeSubmissions((prev) => {
-              const updated = { ...prev }
-              delete updated[payload.old.id]
-              return updated
-            })
+          } catch (err) {
+            console.error('Error in challenge subscription callback:', err)
           }
         }
       )
@@ -273,23 +283,32 @@ export default function VentPage() {
           table: 'challenge_submissions'
         },
         async (payload) => {
-          if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
-            const submission = payload.new as ChallengeSubmission
-            // Check if this submission belongs to an active challenge
-            const challenge = activeChallenges.find(c => c.id === submission.challenge_id)
-            if (challenge) {
-              // Fetch all submissions for this challenge
-              const { data: submissionsData } = await supabase
-                .from('challenge_submissions')
-                .select('*')
-                .eq('challenge_id', submission.challenge_id)
-                .order('created_at', { ascending: false })
+          try {
+            if (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') {
+              const submission = payload.new as ChallengeSubmission
+              // Check if this submission belongs to an active challenge
+              const challenge = activeChallenges.find(c => c.id === submission.challenge_id)
+              if (challenge) {
+                // Fetch all submissions for this challenge
+                const { data: submissionsData, error: submissionsError } = await supabase
+                  .from('challenge_submissions')
+                  .select('*')
+                  .eq('challenge_id', submission.challenge_id)
+                  .order('created_at', { ascending: false })
+                
+                if (submissionsError) {
+                  console.error('Error fetching challenge submissions:', submissionsError)
+                  return
+                }
               
-              setChallengeSubmissions((prev) => ({
-                ...prev,
-                [submission.challenge_id]: submissionsData || []
-              }))
+                setChallengeSubmissions((prev) => ({
+                  ...prev,
+                  [submission.challenge_id]: submissionsData || []
+                }))
+              }
             }
+          } catch (err) {
+            console.error('Error in challenge submission subscription callback:', err)
           }
         }
       )
@@ -316,36 +335,45 @@ export default function VentPage() {
           table: 'poll_votes'
         },
         async (payload) => {
-          const vote = payload.new as any
-          // Check if this vote is for one of the active polls
-          const poll = activePolls.find(p => p.id === vote.poll_id)
-          if (poll) {
-            // Fetch updated vote counts for this poll
-            const { data: votesData } = await supabase
-              .from('poll_votes')
-              .select('option_id')
-              .eq('poll_id', vote.poll_id)
+          try {
+            const vote = payload.new as any
+            // Check if this vote is for one of the active polls
+            const poll = activePolls.find(p => p.id === vote.poll_id)
+            if (poll) {
+              // Fetch updated vote counts for this poll
+              const { data: votesData, error: votesError } = await supabase
+                .from('poll_votes')
+                .select('option_id')
+                .eq('poll_id', vote.poll_id)
 
-            if (votesData) {
-              const voteCounts: { [key: string]: number } = {}
-              votesData.forEach((v) => {
-                voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1
-              })
+              if (votesError) {
+                console.error('Error fetching vote counts:', votesError)
+                return
+              }
 
-              // Update the poll's vote counts
-              setActivePolls((prev) =>
-                prev.map((p) => {
-                  if (p.id === vote.poll_id) {
-                    return {
-                      ...p,
-                      vote_counts: voteCounts,
-                      total_votes: votesData.length,
-                    }
-                  }
-                  return p
+              if (votesData) {
+                const voteCounts: { [key: string]: number } = {}
+                votesData.forEach((v) => {
+                  voteCounts[v.option_id] = (voteCounts[v.option_id] || 0) + 1
                 })
-              )
+
+                // Update the poll's vote counts
+                setActivePolls((prev) =>
+                  prev.map((p) => {
+                    if (p.id === vote.poll_id) {
+                      return {
+                        ...p,
+                        vote_counts: voteCounts,
+                        total_votes: votesData.length,
+                      }
+                    }
+                    return p
+                  })
+                )
+              }
             }
+          } catch (err) {
+            console.error('Error in vote subscription callback:', err)
           }
         }
       )
