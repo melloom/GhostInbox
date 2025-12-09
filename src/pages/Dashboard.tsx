@@ -2176,37 +2176,11 @@ export default function Dashboard() {
 
       if (error) throw error
 
-      // Add the new form to state immediately for instant UI update
-      setFeedbackForms(prev => [newForm as FeedbackForm, ...prev])
+      setFeedbackForms([newForm as FeedbackForm, ...feedbackForms])
       setNewFeedbackTitle('')
       setNewFeedbackDescription('')
       setNewFeedbackType('feedback')
       setShowCreateFeedback(false)
-      
-      // Refresh feedback forms from server to ensure consistency and get response counts
-      if (ventLinks.length > 0) {
-        const linkIds = ventLinks.map(l => l.id)
-        const { data: feedbackData, error: fetchError } = await supabase
-          .from('feedback_forms')
-          .select('*')
-          .in('vent_link_id', linkIds)
-          .order('created_at', { ascending: false })
-        
-        if (!fetchError && feedbackData) {
-          setFeedbackForms(feedbackData)
-          
-          // Fetch response counts for each form
-          const counts: { [formId: string]: number } = {}
-          for (const form of feedbackData) {
-            const { count } = await supabase
-              .from('feedback_responses')
-              .select('*', { count: 'exact', head: true })
-              .eq('form_id', form.id)
-            counts[form.id] = count || 0
-          }
-          setFeedbackResponseCounts(prev => ({ ...prev, ...counts }))
-        }
-      }
     } catch (err: any) {
       alert(err.message || 'Failed to create feedback form')
     } finally {
@@ -5578,57 +5552,110 @@ export default function Dashboard() {
                       </div>
                     ) : showCreateQASession ? (
                       <div className="create-poll-form">
-                        <div className="form-group">
-                          <label>Session Title *</label>
-                          <input
-                            type="text"
-                            className="input"
-                            placeholder="e.g., Ask Me Anything!"
-                            value={newQASessionTitle}
-                            onChange={(e) => setNewQASessionTitle(e.target.value)}
-                            disabled={creatingQASession}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label>Description (optional)</label>
-                          <textarea
-                            className="input"
-                            placeholder="What is this Q&A session about?"
-                            value={newQASessionDescription}
-                            onChange={(e) => setNewQASessionDescription(e.target.value)}
-                            disabled={creatingQASession}
-                            rows={3}
-                          />
-                        </div>
-                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                          <div className="form-group">
-                            <label>Start Date (optional)</label>
-                            <input
-                              type="datetime-local"
-                              className="input"
-                              value={newQASessionStartsAt}
-                              onChange={(e) => setNewQASessionStartsAt(e.target.value)}
-                              disabled={creatingQASession}
-                            />
+                        <div className="form-section">
+                          <div className="form-section-title">
+                            <span>💬</span>
+                            <span>Session Details</span>
                           </div>
                           <div className="form-group">
-                            <label>End Date (optional)</label>
+                            <label>
+                              <span className="label-icon">✏️</span>
+                              <span>Session Title</span>
+                              <span className="required-badge">*</span>
+                            </label>
+                            <span className="label-hint">Create an engaging title that invites questions from your community</span>
                             <input
-                              type="datetime-local"
+                              type="text"
                               className="input"
-                              value={newQASessionEndsAt}
-                              onChange={(e) => setNewQASessionEndsAt(e.target.value)}
+                              placeholder="e.g., Ask Me Anything!, Monthly Q&A, Community Questions"
+                              value={newQASessionTitle}
+                              onChange={(e) => setNewQASessionTitle(e.target.value)}
                               disabled={creatingQASession}
+                              maxLength={100}
                             />
+                            <div className="char-counter">
+                              {newQASessionTitle.length} / 100 characters
+                            </div>
+                          </div>
+                          <div className="form-group">
+                            <label>
+                              <span className="label-icon">📄</span>
+                              <span>Description</span>
+                            </label>
+                            <span className="label-hint">Explain what topics you're open to discussing or what makes this Q&A special</span>
+                            <textarea
+                              className="input"
+                              placeholder="What is this Q&A session about? What topics can people ask about?"
+                              value={newQASessionDescription}
+                              onChange={(e) => setNewQASessionDescription(e.target.value)}
+                              disabled={creatingQASession}
+                              rows={4}
+                              maxLength={500}
+                            />
+                            <div className="char-counter">
+                              {newQASessionDescription.length} / 500 characters
+                            </div>
                           </div>
                         </div>
-                        <button
-                          onClick={createQASession}
-                    className="btn"
-                          disabled={creatingQASession || !newQASessionTitle.trim()}
-                  >
-                          {creatingQASession ? 'Creating...' : 'Create Session'}
-                  </button>
+                        <div className="form-section">
+                          <div className="form-section-title">
+                            <span>📅</span>
+                            <span>Schedule (Optional)</span>
+                          </div>
+                          <div className="form-row">
+                            <div className="form-group">
+                              <label>
+                                <span className="label-icon">🕐</span>
+                                <span>Start Date & Time</span>
+                              </label>
+                              <span className="label-hint">When should this Q&A session begin?</span>
+                              <input
+                                type="datetime-local"
+                                className="input"
+                                value={newQASessionStartsAt}
+                                onChange={(e) => setNewQASessionStartsAt(e.target.value)}
+                                disabled={creatingQASession}
+                              />
+                            </div>
+                            <div className="form-group">
+                              <label>
+                                <span className="label-icon">🕐</span>
+                                <span>End Date & Time</span>
+                              </label>
+                              <span className="label-hint">When should this Q&A session close?</span>
+                              <input
+                                type="datetime-local"
+                                className="input"
+                                value={newQASessionEndsAt}
+                                onChange={(e) => setNewQASessionEndsAt(e.target.value)}
+                                disabled={creatingQASession}
+                              />
+                            </div>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border)' }}>
+                          <button
+                            onClick={createQASession}
+                            className="btn"
+                            disabled={creatingQASession || !newQASessionTitle.trim()}
+                            style={{ flex: 1 }}
+                          >
+                            {creatingQASession ? '⏳ Creating...' : '✨ Create Q&A Session'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowCreateQASession(false)
+                              setNewQASessionTitle('')
+                              setNewQASessionDescription('')
+                              setNewQASessionStartsAt('')
+                              setNewQASessionEndsAt('')
+                            }}
+                            className="btn btn-secondary"
+                            disabled={creatingQASession}
+                          >
+                            Cancel
+                          </button>
+                        </div>
                       </div>
                     ) : qaSessions.length > 0 ? (
                       <div className="polls-list">
@@ -5748,7 +5775,7 @@ export default function Dashboard() {
                           )
                         })}
                       </div>
-                    ) : (
+                    ) : primaryVentLink && !showCreateQASession ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">💬</div>
                         <p>No Q&A sessions yet</p>
@@ -5760,7 +5787,7 @@ export default function Dashboard() {
                           Create Your First Q&A Session
                         </button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
 
@@ -6234,7 +6261,7 @@ export default function Dashboard() {
                           </div>
                         )}
                       </div>
-                    ) : (
+                    ) : primaryVentLink && !showCreateChallenge && !editingChallenge ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🏆</div>
                         <p>No challenges yet</p>
@@ -6246,7 +6273,7 @@ export default function Dashboard() {
                           Create Your First Challenge
                         </button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
 
@@ -6515,7 +6542,7 @@ export default function Dashboard() {
                           )
                         })}
                 </div>
-              ) : (
+              ) : primaryVentLink && !showCreateRaffle ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🎲</div>
                         <p>No raffles yet</p>
@@ -6527,7 +6554,7 @@ export default function Dashboard() {
                           Create Your First Raffle
                         </button>
                 </div>
-              )}
+              ) : null}
             </div>
                 )}
 
@@ -6851,7 +6878,7 @@ export default function Dashboard() {
                             </div>
                           ))}
                         </div>
-                      ) : (
+                      ) : primaryVentLink && !showCreateVote && !editingVote ? (
                         <div className="empty-state-compact">
                           <div className="empty-icon">🗳️</div>
                           <p>No votes yet</p>
@@ -6863,7 +6890,7 @@ export default function Dashboard() {
                             Create Your First Vote
                           </button>
                         </div>
-                      )
+                      ) : null
                     })()}
                   </div>
                 )}
@@ -6919,105 +6946,80 @@ export default function Dashboard() {
                           Create Vent Link
                         </button>
                       </div>
-                    ) : showCreateFeedback && !editingFeedback && (
-                      <div className="create-poll-form">
-                        <div className="form-group">
-                          <label htmlFor="feedback-title">Form Title *</label>
-                          <input
-                            id="feedback-title"
-                            type="text"
-                            className="input"
-                            placeholder="e.g., Feature Request Form"
-                            value={newFeedbackTitle}
-                            onChange={(e) => setNewFeedbackTitle(e.target.value)}
-                            disabled={creatingFeedback}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label htmlFor="feedback-description">Description (optional)</label>
-                          <textarea
-                            id="feedback-description"
-                            className="input"
-                            placeholder="What kind of feedback are you looking for?"
-                            value={newFeedbackDescription}
-                            onChange={(e) => setNewFeedbackDescription(e.target.value)}
-                            disabled={creatingFeedback}
-                            rows={3}
-                          />
-                        </div>
-                        <div className="form-group">
-                          <label htmlFor="feedback-type">Form Type *</label>
-                          <select
-                            id="feedback-type"
-                            className="input"
-                            value={newFeedbackType}
-                            onChange={(e) => setNewFeedbackType(e.target.value as 'survey' | 'feedback' | 'feature_request')}
-                            disabled={creatingFeedback}
-                          >
-                            <option value="feedback">General Feedback</option>
-                            <option value="survey">Survey</option>
-                            <option value="feature_request">Feature Request</option>
-                          </select>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
-                          <button
-                            onClick={createFeedbackForm}
-                            className="btn"
-                            disabled={creatingFeedback || !newFeedbackTitle.trim()}
-                          >
-                            {creatingFeedback ? 'Creating...' : 'Create Form'}
-                          </button>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Edit Feedback Form */}
-                    {editingFeedback && (
+                    ) : editingFeedback ? (
                       <div className="create-poll-form" style={{ marginBottom: '24px', border: '2px solid var(--accent)' }}>
-                        <h3 style={{ marginBottom: '16px' }}>Edit Feedback Form</h3>
-                        <div className="form-group">
-                          <label htmlFor="edit-feedback-title">Form Title *</label>
-                          <input
-                            id="edit-feedback-title"
-                            type="text"
-                            className="input"
-                            value={editFeedbackTitle}
-                            onChange={(e) => setEditFeedbackTitle(e.target.value)}
-                            disabled={updatingFeedback}
-                          />
+                        <div className="form-section-title" style={{ marginBottom: '24px' }}>
+                          <span>✏️</span>
+                          <span>Edit Feedback Form</span>
                         </div>
-                        <div className="form-group">
-                          <label htmlFor="edit-feedback-description">Description (optional)</label>
-                          <textarea
-                            id="edit-feedback-description"
-                            className="input"
-                            value={editFeedbackDescription}
-                            onChange={(e) => setEditFeedbackDescription(e.target.value)}
-                            disabled={updatingFeedback}
-                            rows={3}
-                          />
+                        <div className="form-section">
+                          <div className="form-group">
+                            <label htmlFor="edit-feedback-title">
+                              <span className="label-icon">✏️</span>
+                              <span>Form Title</span>
+                              <span className="required-badge">*</span>
+                            </label>
+                            <span className="label-hint">Update the title of your feedback form</span>
+                            <input
+                              id="edit-feedback-title"
+                              type="text"
+                              className="input"
+                              value={editFeedbackTitle}
+                              onChange={(e) => setEditFeedbackTitle(e.target.value)}
+                              disabled={updatingFeedback}
+                              maxLength={100}
+                            />
+                            <div className="char-counter">
+                              {editFeedbackTitle.length} / 100 characters
+                            </div>
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="edit-feedback-description">
+                              <span className="label-icon">📄</span>
+                              <span>Description</span>
+                            </label>
+                            <span className="label-hint">Update the description to help users understand what feedback you're looking for</span>
+                            <textarea
+                              id="edit-feedback-description"
+                              className="input"
+                              value={editFeedbackDescription}
+                              onChange={(e) => setEditFeedbackDescription(e.target.value)}
+                              disabled={updatingFeedback}
+                              rows={4}
+                              maxLength={500}
+                            />
+                            <div className="char-counter">
+                              {editFeedbackDescription.length} / 500 characters
+                            </div>
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="edit-feedback-type">
+                              <span className="label-icon">🏷️</span>
+                              <span>Form Type</span>
+                              <span className="required-badge">*</span>
+                            </label>
+                            <span className="label-hint">Change the form type if needed</span>
+                            <select
+                              id="edit-feedback-type"
+                              className="input"
+                              value={editFeedbackType}
+                              onChange={(e) => setEditFeedbackType(e.target.value as 'survey' | 'feedback' | 'feature_request')}
+                              disabled={updatingFeedback}
+                            >
+                              <option value="feedback">💬 General Feedback</option>
+                              <option value="survey">📊 Survey</option>
+                              <option value="feature_request">💡 Feature Request</option>
+                            </select>
+                          </div>
                         </div>
-                        <div className="form-group">
-                          <label htmlFor="edit-feedback-type">Form Type *</label>
-                          <select
-                            id="edit-feedback-type"
-                            className="input"
-                            value={editFeedbackType}
-                            onChange={(e) => setEditFeedbackType(e.target.value as 'survey' | 'feedback' | 'feature_request')}
-                            disabled={updatingFeedback}
-                          >
-                            <option value="feedback">General Feedback</option>
-                            <option value="survey">Survey</option>
-                            <option value="feature_request">Feature Request</option>
-                          </select>
-                        </div>
-                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border)' }}>
                           <button
                             onClick={saveFeedbackEdit}
                             className="btn"
                             disabled={updatingFeedback || !editFeedbackTitle.trim()}
+                            style={{ flex: 1 }}
                           >
-                            {updatingFeedback ? 'Saving...' : 'Save Changes'}
+                            {updatingFeedback ? '⏳ Saving...' : '💾 Save Changes'}
                           </button>
                           <button
                             onClick={cancelEditFeedback}
@@ -7028,16 +7030,106 @@ export default function Dashboard() {
                           </button>
                         </div>
                       </div>
-                    )}
-
-                    {primaryVentLink && (() => {
-                      const primaryForms = feedbackForms.filter(f => f.vent_link_id === primaryVentLink.id)
-                      return primaryForms.length > 0
-                    })() ? (
+                    ) : showCreateFeedback ? (
+                      <div className="create-poll-form">
+                        <div className="form-section">
+                          <div className="form-section-title">
+                            <span>📝</span>
+                            <span>Basic Information</span>
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="feedback-title">
+                              <span className="label-icon">✏️</span>
+                              <span>Form Title</span>
+                              <span className="required-badge">*</span>
+                            </label>
+                            <span className="label-hint">Give your feedback form a clear, descriptive title</span>
+                            <input
+                              id="feedback-title"
+                              type="text"
+                              className="input"
+                              placeholder="e.g., Feature Request Form, Product Feedback, Survey 2024"
+                              value={newFeedbackTitle}
+                              onChange={(e) => setNewFeedbackTitle(e.target.value)}
+                              disabled={creatingFeedback}
+                              maxLength={100}
+                            />
+                            <div className="char-counter">
+                              {newFeedbackTitle.length} / 100 characters
+                            </div>
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="feedback-description">
+                              <span className="label-icon">📄</span>
+                              <span>Description</span>
+                            </label>
+                            <span className="label-hint">Explain what kind of feedback you're looking for. This helps users understand what to share.</span>
+                            <textarea
+                              id="feedback-description"
+                              className="input"
+                              placeholder="What kind of feedback are you looking for? What should users focus on?"
+                              value={newFeedbackDescription}
+                              onChange={(e) => setNewFeedbackDescription(e.target.value)}
+                              disabled={creatingFeedback}
+                              rows={4}
+                              maxLength={500}
+                            />
+                            <div className="char-counter">
+                              {newFeedbackDescription.length} / 500 characters
+                            </div>
+                          </div>
+                        </div>
+                        <div className="form-section">
+                          <div className="form-section-title">
+                            <span>⚙️</span>
+                            <span>Form Settings</span>
+                          </div>
+                          <div className="form-group">
+                            <label htmlFor="feedback-type">
+                              <span className="label-icon">🏷️</span>
+                              <span>Form Type</span>
+                              <span className="required-badge">*</span>
+                            </label>
+                            <span className="label-hint">Choose the type that best matches your feedback form's purpose</span>
+                            <select
+                              id="feedback-type"
+                              className="input"
+                              value={newFeedbackType}
+                              onChange={(e) => setNewFeedbackType(e.target.value as 'survey' | 'feedback' | 'feature_request')}
+                              disabled={creatingFeedback}
+                            >
+                              <option value="feedback">💬 General Feedback - Open-ended feedback and suggestions</option>
+                              <option value="survey">📊 Survey - Structured questions and responses</option>
+                              <option value="feature_request">💡 Feature Request - Ideas for new features or improvements</option>
+                            </select>
+                          </div>
+                        </div>
+                        <div style={{ display: 'flex', gap: '12px', marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border)' }}>
+                          <button
+                            onClick={createFeedbackForm}
+                            className="btn"
+                            disabled={creatingFeedback || !newFeedbackTitle.trim()}
+                            style={{ flex: 1 }}
+                          >
+                            {creatingFeedback ? '⏳ Creating...' : '✨ Create Form'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setShowCreateFeedback(false)
+                              setNewFeedbackTitle('')
+                              setNewFeedbackDescription('')
+                              setNewFeedbackType('feedback')
+                            }}
+                            className="btn btn-secondary"
+                            disabled={creatingFeedback}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : feedbackForms.length > 0 ? (
                       <div className="polls-list">
-                        {feedbackForms
-                          .filter(f => f.vent_link_id === primaryVentLink.id)
-                          .map((form) => (
+                        {feedbackForms.map((form) => (
                           <div key={form.id} className={`poll-card ${!form.is_active ? 'inactive' : ''}`}>
                             <div className="poll-card-header">
                               <div style={{ flex: 1 }}>
@@ -7104,7 +7196,7 @@ export default function Dashboard() {
                           </div>
                         ))}
                       </div>
-                    ) : primaryVentLink ? (
+                    ) : (
                       <div className="empty-state-compact">
                         <div className="empty-icon">📝</div>
                         <p>No feedback forms yet</p>
@@ -7116,7 +7208,7 @@ export default function Dashboard() {
                           Create Your First Form
                         </button>
                       </div>
-                    ) : null}
+                    )}
                   </div>
                 )}
 
@@ -7349,14 +7441,14 @@ export default function Dashboard() {
                           </div>
                         ))}
                       </div>
-                    ) : (
+                    ) : primaryVentLink && !showCreateHighlight ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">⭐</div>
                         <p>No highlights yet</p>
                         <p className="empty-hint">Feature top messages and showcase community stories</p>
                         <button className="btn" onClick={() => setShowCreateHighlight(true)}>Create Highlight</button>
                       </div>
-                    )}
+                    ) : null}
                   </div>
                 )}
 
@@ -7815,7 +7907,7 @@ export default function Dashboard() {
                           )
                         })}
                       </div>
-                    ) : primaryVentLink ? (
+                    ) : primaryVentLink && !showCreateGoal && !editingGoal ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🎯</div>
                         <p>No goals yet</p>
@@ -8161,7 +8253,7 @@ export default function Dashboard() {
                           )
                         })}
                       </div>
-                    ) : primaryVentLink ? (
+                    ) : primaryVentLink && !showCreateEvent && !editingEvent ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">📅</div>
                         <p>No events yet</p>
@@ -8618,7 +8710,7 @@ export default function Dashboard() {
                           )
                         })}
                       </div>
-                    ) : primaryVentLink ? (
+                    ) : primaryVentLink && !showCreateProject && !editingProject ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">🤝</div>
                         <p>No projects yet</p>

@@ -168,8 +168,9 @@ export default function ResetPassword() {
         <div className="auth-container">
           <h1>Reset Password</h1>
           <p className="auth-subtitle">Verifying reset link...</p>
-          <div style={{ textAlign: 'center', padding: '20px' }}>
-            <div className="loading-spinner">Loading...</div>
+          <div className="loading-container-compact">
+            <div className="loading-spinner-large"></div>
+            <p className="loading-text">Please wait...</p>
           </div>
         </div>
       </div>
