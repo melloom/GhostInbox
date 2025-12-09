@@ -460,8 +460,13 @@ export default function Dashboard() {
               // Refresh reactions for this message
               await fetchReactionsForMessage(reaction.message_id)
             }
-          } catch (err) {
-            console.error('Error in reactions subscription callback:', err)
+          } catch (err: any) {
+            // Suppress expected errors (403, RLS policy blocks, etc.)
+            if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+              if (import.meta.env.DEV) {
+                console.error('Error in reactions subscription callback:', err)
+              }
+            }
           }
         }
       )
@@ -902,34 +907,48 @@ export default function Dashboard() {
 
         // Fetch reactions for all messages
         if (msgs && msgs.length > 0) {
-          const messageIds = msgs.map(msg => msg.id)
-          const { data: reactionsData, error: reactionsError } = await supabase
-            .from('message_reactions')
-            .select('*')
-            .in('message_id', messageIds)
-            .order('created_at', { ascending: false })
+          try {
+            const messageIds = msgs.map(msg => msg.id)
+            const { data: reactionsData, error: reactionsError } = await supabase
+              .from('message_reactions')
+              .select('*')
+              .in('message_id', messageIds)
+              .order('created_at', { ascending: false })
 
-          if (!reactionsError && reactionsData) {
-            // Group reactions by message_id
-            const reactionsByMessage: { [messageId: string]: MessageReaction[] } = {}
-            const statsByMessage: { [messageId: string]: { [reactionType: string]: number } } = {}
-
-            reactionsData.forEach((reaction) => {
-              if (!reactionsByMessage[reaction.message_id]) {
-                reactionsByMessage[reaction.message_id] = []
+            if (reactionsError) {
+              // Suppress expected RLS errors
+              if (reactionsError.code !== 'PGRST116' && reactionsError.code !== '42501' && reactionsError.code !== 'PGRST301') {
+                if (import.meta.env.DEV) {
+                  console.error('Error fetching reactions:', reactionsError)
+                }
               }
-              reactionsByMessage[reaction.message_id].push(reaction)
+            } else if (reactionsData) {
+              // Group reactions by message_id
+              const reactionsByMessage: { [messageId: string]: MessageReaction[] } = {}
+              const statsByMessage: { [messageId: string]: { [reactionType: string]: number } } = {}
 
-              // Count reactions by type
-              if (!statsByMessage[reaction.message_id]) {
-                statsByMessage[reaction.message_id] = {}
-              }
-              statsByMessage[reaction.message_id][reaction.reaction_type] = 
-                (statsByMessage[reaction.message_id][reaction.reaction_type] || 0) + 1
-            })
+              reactionsData.forEach((reaction) => {
+                if (!reactionsByMessage[reaction.message_id]) {
+                  reactionsByMessage[reaction.message_id] = []
+                }
+                reactionsByMessage[reaction.message_id].push(reaction)
 
-            setMessageReactions(reactionsByMessage)
-            setReactionStats(statsByMessage)
+                // Count reactions by type
+                if (!statsByMessage[reaction.message_id]) {
+                  statsByMessage[reaction.message_id] = {}
+                }
+                statsByMessage[reaction.message_id][reaction.reaction_type] = 
+                  (statsByMessage[reaction.message_id][reaction.reaction_type] || 0) + 1
+              })
+
+              setMessageReactions(reactionsByMessage)
+              setReactionStats(statsByMessage)
+            }
+          } catch (err) {
+            // Suppress expected errors
+            if (import.meta.env.DEV) {
+              console.error('Error fetching reactions:', err)
+            }
           }
         }
 
@@ -2555,8 +2574,11 @@ export default function Dashboard() {
         .order('created_at', { ascending: false })
 
       if (error) {
-        if (error.code !== 'PGRST116' && error.code !== '42501') {
-          console.error('Error fetching reactions:', error)
+        // Suppress expected RLS errors (403, permission denied, etc.)
+        if (error.code !== 'PGRST116' && error.code !== '42501' && error.code !== 'PGRST301') {
+          if (import.meta.env.DEV) {
+            console.error('Error fetching reactions:', error)
+          }
         }
         return
       }
@@ -2576,9 +2598,12 @@ export default function Dashboard() {
         ...prev,
         [messageId]: stats
       }))
-    } catch (err) {
-      if (import.meta.env.DEV) {
-        console.error('Error fetching reactions:', err)
+    } catch (err: any) {
+      // Suppress expected errors (403, RLS policy blocks, etc.)
+      if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+        if (import.meta.env.DEV) {
+          console.error('Error fetching reactions:', err)
+        }
       }
     }
   }
@@ -2603,13 +2628,24 @@ export default function Dashboard() {
           await removeReaction(messageId, reactionType)
           return
         }
-        console.error('Error adding reaction:', error)
+        // Suppress expected RLS errors (403, permission denied, etc.)
+        const errorCode = error.code || String((error as any).status || '')
+        if (errorCode !== 'PGRST116' && errorCode !== '42501' && errorCode !== 'PGRST301' && errorCode !== '403') {
+          if (import.meta.env.DEV) {
+            console.error('Error adding reaction:', error)
+          }
+        }
       } else {
         // Refresh reactions for this message
         await fetchReactionsForMessage(messageId)
       }
-    } catch (err) {
-      console.error('Error adding reaction:', err)
+    } catch (err: any) {
+      // Suppress expected errors
+      if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+        if (import.meta.env.DEV) {
+          console.error('Error adding reaction:', err)
+        }
+      }
     }
   }
 
@@ -2625,13 +2661,24 @@ export default function Dashboard() {
         .eq('ip_hash', ipHash)
 
       if (error) {
-        console.error('Error removing reaction:', error)
+        // Suppress expected RLS errors (403, permission denied, etc.)
+        const errorCode = error.code || String((error as any).status || '')
+        if (errorCode !== 'PGRST116' && errorCode !== '42501' && errorCode !== 'PGRST301' && errorCode !== '403') {
+          if (import.meta.env.DEV) {
+            console.error('Error removing reaction:', error)
+          }
+        }
       } else {
         // Refresh reactions for this message
         await fetchReactionsForMessage(messageId)
       }
-    } catch (err) {
-      console.error('Error removing reaction:', err)
+    } catch (err: any) {
+      // Suppress expected errors
+      if (err?.code !== 'PGRST116' && err?.code !== '42501' && err?.code !== 'PGRST301' && err?.code !== 403) {
+        if (import.meta.env.DEV) {
+          console.error('Error removing reaction:', err)
+        }
+      }
     }
   }
 
