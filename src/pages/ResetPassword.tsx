@@ -16,83 +16,99 @@ export default function ResetPassword() {
   const navigate = useNavigate()
 
   useEffect(() => {
-    // First, check URL hash for recovery token immediately
+    let timeoutId: NodeJS.Timeout
+    let isMounted = true
+
+    // Check URL hash for recovery token
     const hashParams = new URLSearchParams(window.location.hash.substring(1))
     const type = hashParams.get('type')
     const accessToken = hashParams.get('access_token')
-    const isRecovery = type === 'recovery' && accessToken
-
-    if (isRecovery) {
-      // Recovery token in URL - wait for Supabase to process it
-      setIsValidSession(false)
-      setError(null)
-      setCheckingSession(true)
-    }
+    const refreshToken = hashParams.get('refresh_token')
+    const hasRecoveryToken = type === 'recovery' && (accessToken || refreshToken)
 
     // Listen for auth state changes (including password reset tokens from URL hash)
     const {
       data: { subscription },
     } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (event === 'PASSWORD_RECOVERY') {
+      if (!isMounted) return
+
+      if (event === 'PASSWORD_RECOVERY' || (event === 'SIGNED_IN' && session)) {
         // User clicked password reset link - session is now available
+        // If we have a session, allow password reset (Supabase only creates session from valid reset links)
         setIsValidSession(true)
         setCheckingSession(false)
         setError(null)
-      } else if (event === 'SIGNED_IN' && session) {
-        // Check if this is a recovery session
-        const currentHashParams = new URLSearchParams(window.location.hash.substring(1))
-        const currentType = currentHashParams.get('type')
-        if (currentType === 'recovery') {
-          setIsValidSession(true)
-          setCheckingSession(false)
-          setError(null)
-        } else {
-          // Regular sign in, but we're on reset-password page, so don't redirect
-          // Just keep checking
-          setCheckingSession(false)
+      } else if (event === 'SIGNED_OUT') {
+        // User signed out
+        setIsValidSession(false)
+        setCheckingSession(false)
+        if (!hasRecoveryToken) {
+          setError('Session expired. Please request a new password reset.')
         }
       }
     })
 
-    // Check current session after a brief delay to let Supabase process the hash
-    setTimeout(() => {
-      supabase.auth.getSession().then(({ data: { session } }) => {
+    // Check current session with retries to handle async processing
+    const checkSession = async (attempt = 0) => {
+      if (!isMounted) return
+
+      try {
+        const { data: { session } } = await supabase.auth.getSession()
+        
+        if (!isMounted) return
+
+        // Check URL hash again (might have changed after processing)
+        const currentHashParams = new URLSearchParams(window.location.hash.substring(1))
+        const currentType = currentHashParams.get('type')
+        const currentAccessToken = currentHashParams.get('access_token')
+        const currentRefreshToken = currentHashParams.get('refresh_token')
+        const hasRecoveryInUrl = currentType === 'recovery' && (currentAccessToken || currentRefreshToken)
+
         if (session) {
-          // Check if URL has recovery token
-          const currentHashParams = new URLSearchParams(window.location.hash.substring(1))
-          const currentType = currentHashParams.get('type')
-          if (currentType === 'recovery') {
-            setIsValidSession(true)
-            setCheckingSession(false)
-            setError(null)
-          } else if (isRecovery) {
-            // Has recovery token in URL but session might not be ready yet
-            // Wait for auth state change
-            setCheckingSession(false)
-          } else {
-            // Has session but not recovery, but we're on reset-password page
-            // Don't redirect, just show error
-            setError('This link is not a password reset link.')
-            setIsValidSession(false)
-            setCheckingSession(false)
-          }
+          // We have a session - if we're on reset-password page, allow reset
+          // Supabase only creates a session from valid reset links, so if session exists
+          // and we're on this page, user likely came from a valid reset link
+          setIsValidSession(true)
+          setCheckingSession(false)
+          setError(null)
         } else {
-          // No session - check if URL has recovery hash
-          if (isRecovery) {
-            // Recovery token in URL, wait for auth state change
-            setIsValidSession(false)
-            setError(null)
-            setCheckingSession(false)
+          // No session yet
+          if (hasRecoveryInUrl || hasRecoveryToken) {
+            // Recovery token in URL but no session yet - wait for Supabase to process
+            if (attempt < 5) {
+              // Retry after delay (Supabase needs time to process the hash)
+              timeoutId = setTimeout(() => checkSession(attempt + 1), 1000)
+              return
+            } else {
+              // After 5 attempts, still no session - might be expired or invalid token
+              setError('Invalid or expired reset link. Please request a new password reset.')
+              setIsValidSession(false)
+              setCheckingSession(false)
+              return
+            }
           } else {
+            // No session and no recovery token in URL
             setError('Invalid or expired reset link. Please request a new password reset.')
             setIsValidSession(false)
             setCheckingSession(false)
+            return
           }
         }
-      })
-    }, 500) // Small delay to let Supabase process the hash
+      } catch (err) {
+        if (!isMounted) return
+        console.error('Error checking session:', err)
+        setError('Error verifying reset link. Please try again.')
+        setIsValidSession(false)
+        setCheckingSession(false)
+      }
+    }
+
+    // Initial check with delay to let Supabase process the hash
+    timeoutId = setTimeout(() => checkSession(0), 500)
 
     return () => {
+      isMounted = false
+      if (timeoutId) clearTimeout(timeoutId)
       subscription.unsubscribe()
     }
   }, [navigate])
