@@ -435,6 +435,71 @@ export default function VentPage() {
     }
   }, [ventLink, activePolls])
 
+  // Set up real-time subscription for community vote responses
+  useEffect(() => {
+    if (!ventLink || activeVotes.length === 0) return
+
+    // Subscribe to vote responses for real-time vote count updates
+    const voteResponsesChannel = supabase
+      .channel(`vent_vote_responses_${ventLink.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'vote_responses'
+        },
+        async (payload) => {
+          try {
+            const response = payload.new as any
+            // Find which vote this response belongs to
+            const vote = activeVotes.find(v => v.id === response.vote_id)
+            if (!vote) return
+
+            // Fetch updated vote counts for this vote
+            const { data: responsesData, error: responsesError } = await supabase
+              .from('vote_responses')
+              .select('option_id')
+              .eq('vote_id', response.vote_id)
+
+            if (responsesError) {
+              console.error('Error fetching vote response counts:', responsesError)
+              return
+            }
+
+            if (responsesData) {
+              const voteCounts: { [key: string]: number } = {}
+              responsesData.forEach((r) => {
+                voteCounts[r.option_id] = (voteCounts[r.option_id] || 0) + 1
+              })
+
+              // Update the vote's vote counts
+              setActiveVotes((prev) =>
+                prev.map((v) => {
+                  if (v.id === response.vote_id) {
+                    return {
+                      ...v,
+                      vote_counts: voteCounts,
+                      total_votes: responsesData.length,
+                    }
+                  }
+                  return v
+                })
+              )
+            }
+          } catch (err) {
+            console.error('Error in vote response subscription callback:', err)
+          }
+        }
+      )
+      .subscribe()
+
+    // Cleanup subscription on unmount
+    return () => {
+      voteResponsesChannel.unsubscribe()
+    }
+  }, [ventLink, activeVotes])
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!ventLink) return

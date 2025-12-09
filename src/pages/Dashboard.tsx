@@ -145,6 +145,7 @@ export default function Dashboard() {
   const [updatingFeedback, setUpdatingFeedback] = useState(false)
   const [deletingFeedback, setDeletingFeedback] = useState<string | null>(null)
   const [feedbackAlwaysVisible, setFeedbackAlwaysVisible] = useState<{ [ventLinkId: string]: boolean }>({})
+  const [feedbackResponseCounts, setFeedbackResponseCounts] = useState<{ [formId: string]: number }>({})
   const [highlights, setHighlights] = useState<CommunityHighlight[]>([])
   const [showCreateHighlight, setShowCreateHighlight] = useState(false)
   const [newHighlightTitle, setNewHighlightTitle] = useState('')
@@ -486,6 +487,79 @@ export default function Dashboard() {
       })
       voteResponsesChannel.unsubscribe()
       reactionsChannel.unsubscribe()
+    }
+
+    // Subscribe to feedback forms for each vent link
+    const feedbackChannels = linkIds.map((linkId) => {
+      return supabase
+        .channel(`feedback_forms_${linkId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'feedback_forms',
+            filter: `vent_link_id=eq.${linkId}`,
+          },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              setFeedbackForms((prev) => [payload.new as FeedbackForm, ...prev])
+            } else if (payload.eventType === 'UPDATE') {
+              setFeedbackForms((prev) =>
+                prev.map((f) => (f.id === payload.new.id ? (payload.new as FeedbackForm) : f))
+              )
+            } else if (payload.eventType === 'DELETE') {
+              setFeedbackForms((prev) => prev.filter((f) => f.id !== payload.old.id))
+            }
+          }
+        )
+        .subscribe()
+    })
+
+    // Subscribe to feedback responses for counts
+    const feedbackResponsesChannel = supabase
+      .channel('feedback_responses_changes')
+      .on(
+        'postgres_changes',
+        {
+          event: 'INSERT',
+          schema: 'public',
+          table: 'feedback_responses',
+        },
+        async (payload) => {
+          try {
+            const response = payload.new as any
+            const { data: responsesData, error } = await supabase
+              .from('feedback_responses')
+              .select('id')
+              .eq('form_id', response.form_id)
+            if (error) return
+            // Note: We'll fetch response counts when viewing forms
+          } catch (err) {
+            console.error('Error updating feedback response counts:', err)
+          }
+        }
+      )
+      .subscribe()
+
+    // Update cleanup to include feedback channels
+    return () => {
+      messageChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      pollChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      votesChannel.unsubscribe()
+      voteChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      voteResponsesChannel.unsubscribe()
+      reactionsChannel.unsubscribe()
+      feedbackChannels.forEach(channel => {
+        channel.unsubscribe()
+      })
+      feedbackResponsesChannel.unsubscribe()
     }
 
     // Subscribe to challenge changes for each vent link
@@ -5894,25 +5968,259 @@ export default function Dashboard() {
                 {hubView === 'feedback' && (
                   <div className="hub-feedback-view">
                     <div className="hub-section-header">
-                      <h3>Feedback Forms</h3>
-                      {primaryVentLink && (
-                        <button className="btn btn-secondary">+ New Form</button>
+                      <div className="hub-section-title">
+                        <h3>Feedback Forms</h3>
+                        {primaryVentLink && (
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginTop: '8px' }}>
+                            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '14px', cursor: 'pointer' }}>
+                              <input
+                                type="checkbox"
+                                checked={feedbackAlwaysVisible[primaryVentLink.id] || false}
+                                onChange={() => toggleFeedbackVisibility(primaryVentLink.id)}
+                                style={{ cursor: 'pointer' }}
+                              />
+                              <span>Always show feedback tab</span>
+                            </label>
+                          </div>
+                        )}
+                      </div>
+                      {primaryVentLink ? (
+                        <button
+                          onClick={() => {
+                            if (editingFeedback) cancelEditFeedback()
+                            setShowCreateFeedback(!showCreateFeedback)
+                          }}
+                          className="btn btn-secondary"
+                        >
+                          {showCreateFeedback ? 'Cancel' : '+ New Form'}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn btn-secondary"
+                        >
+                          Create Link First
+                        </button>
                       )}
                     </div>
+
                     {!primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">📝</div>
-                        <p>Create a vent link first</p>
-                        <button onClick={() => { setHubView('links'); setShowCreateLink(true); }} className="btn">Create Link</button>
-                </div>
-              ) : (
+                        <p>Create a vent link first to create feedback forms</p>
+                        <button
+                          onClick={() => { setHubView('links'); setShowCreateLink(true); }}
+                          className="btn"
+                        >
+                          Create Vent Link
+                        </button>
+                      </div>
+                    ) : showCreateFeedback && !editingFeedback && (
+                      <div className="create-poll-form">
+                        <div className="form-group">
+                          <label htmlFor="feedback-title">Form Title *</label>
+                          <input
+                            id="feedback-title"
+                            type="text"
+                            className="input"
+                            placeholder="e.g., Feature Request Form"
+                            value={newFeedbackTitle}
+                            onChange={(e) => setNewFeedbackTitle(e.target.value)}
+                            disabled={creatingFeedback}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="feedback-description">Description (optional)</label>
+                          <textarea
+                            id="feedback-description"
+                            className="input"
+                            placeholder="What kind of feedback are you looking for?"
+                            value={newFeedbackDescription}
+                            onChange={(e) => setNewFeedbackDescription(e.target.value)}
+                            disabled={creatingFeedback}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="feedback-type">Form Type *</label>
+                          <select
+                            id="feedback-type"
+                            className="input"
+                            value={newFeedbackType}
+                            onChange={(e) => setNewFeedbackType(e.target.value as 'survey' | 'feedback' | 'feature_request')}
+                            disabled={creatingFeedback}
+                          >
+                            <option value="feedback">General Feedback</option>
+                            <option value="survey">Survey</option>
+                            <option value="feature_request">Feature Request</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={createFeedbackForm}
+                            className="btn"
+                            disabled={creatingFeedback || !newFeedbackTitle.trim()}
+                          >
+                            {creatingFeedback ? 'Creating...' : 'Create Form'}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Edit Feedback Form */}
+                    {editingFeedback && (
+                      <div className="create-poll-form" style={{ marginBottom: '24px', border: '2px solid var(--accent)' }}>
+                        <h3 style={{ marginBottom: '16px' }}>Edit Feedback Form</h3>
+                        <div className="form-group">
+                          <label htmlFor="edit-feedback-title">Form Title *</label>
+                          <input
+                            id="edit-feedback-title"
+                            type="text"
+                            className="input"
+                            value={editFeedbackTitle}
+                            onChange={(e) => setEditFeedbackTitle(e.target.value)}
+                            disabled={updatingFeedback}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-feedback-description">Description (optional)</label>
+                          <textarea
+                            id="edit-feedback-description"
+                            className="input"
+                            value={editFeedbackDescription}
+                            onChange={(e) => setEditFeedbackDescription(e.target.value)}
+                            disabled={updatingFeedback}
+                            rows={3}
+                          />
+                        </div>
+                        <div className="form-group">
+                          <label htmlFor="edit-feedback-type">Form Type *</label>
+                          <select
+                            id="edit-feedback-type"
+                            className="input"
+                            value={editFeedbackType}
+                            onChange={(e) => setEditFeedbackType(e.target.value as 'survey' | 'feedback' | 'feature_request')}
+                            disabled={updatingFeedback}
+                          >
+                            <option value="feedback">General Feedback</option>
+                            <option value="survey">Survey</option>
+                            <option value="feature_request">Feature Request</option>
+                          </select>
+                        </div>
+                        <div style={{ display: 'flex', gap: '8px', marginTop: '16px' }}>
+                          <button
+                            onClick={saveFeedbackEdit}
+                            className="btn"
+                            disabled={updatingFeedback || !editFeedbackTitle.trim()}
+                          >
+                            {updatingFeedback ? 'Saving...' : 'Save Changes'}
+                          </button>
+                          <button
+                            onClick={cancelEditFeedback}
+                            className="btn btn-secondary"
+                            disabled={updatingFeedback}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                    {primaryVentLink && feedbackForms.length > 0 ? (
+                      <div className="polls-list">
+                        {feedbackForms.map((form) => {
+                          // Fetch response count for this form
+                          const [responseCount, setResponseCount] = useState<number>(0)
+                          useEffect(() => {
+                            supabase
+                              .from('feedback_responses')
+                              .select('id', { count: 'exact', head: true })
+                              .eq('form_id', form.id)
+                              .then(({ count }) => setResponseCount(count || 0))
+                          }, [form.id])
+
+                          return (
+                            <div key={form.id} className={`poll-card ${!form.is_active ? 'inactive' : ''}`}>
+                              <div className="poll-card-header">
+                                <div style={{ flex: 1 }}>
+                                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                                    <h3>📝 {form.title}</h3>
+                                    <span style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      background: form.is_active ? 'rgba(16, 185, 129, 0.1)' : 'rgba(107, 114, 128, 0.1)',
+                                      color: form.is_active ? 'var(--success)' : 'var(--text-secondary)'
+                                    }}>
+                                      {form.is_active ? '🟢 Active' : '⚪ Inactive'}
+                                    </span>
+                                    <span style={{
+                                      padding: '4px 8px',
+                                      borderRadius: '4px',
+                                      fontSize: '11px',
+                                      fontWeight: 600,
+                                      background: 'rgba(59,130,246,0.12)',
+                                      color: 'var(--text-primary)'
+                                    }}>
+                                      {form.form_type === 'survey' ? '📊 Survey' :
+                                       form.form_type === 'feature_request' ? '💡 Feature Request' :
+                                       '💬 Feedback'}
+                                    </span>
+                                  </div>
+                                  {form.description && (
+                                    <p style={{ marginTop: '4px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                                      {form.description}
+                                    </p>
+                                  )}
+                                  <div style={{ marginTop: '12px', fontSize: '14px', color: 'var(--text-secondary)' }}>
+                                    <span>Responses: <strong>{responseCount}</strong></span>
+                                  </div>
+                                </div>
+                                <div className="poll-actions">
+                                  <button
+                                    onClick={() => startEditingFeedback(form)}
+                                    className="btn btn-small btn-secondary"
+                                    title="Edit Form"
+                                    disabled={editingFeedback !== null}
+                                  >
+                                    ✏️ Edit
+                                  </button>
+                                  <button
+                                    onClick={() => toggleFeedbackActive(form.id, !form.is_active)}
+                                    className={`btn btn-small ${form.is_active ? 'btn-secondary' : ''}`}
+                                    title={form.is_active ? 'Deactivate' : 'Activate'}
+                                  >
+                                    {form.is_active ? '⏸️' : '▶️'}
+                                  </button>
+                                  <button
+                                    onClick={() => deleteFeedbackForm(form.id)}
+                                    className="btn btn-small btn-danger"
+                                    title="Delete Form"
+                                    disabled={deletingFeedback === form.id}
+                                  >
+                                    {deletingFeedback === form.id ? '...' : '🗑️'}
+                                  </button>
+                                </div>
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+                    ) : primaryVentLink ? (
                       <div className="empty-state-compact">
                         <div className="empty-icon">📝</div>
                         <p>No feedback forms yet</p>
                         <p className="empty-hint">Create surveys and feedback forms for your community</p>
-                </div>
-              )}
-            </div>
+                        <button
+                          onClick={() => setShowCreateFeedback(true)}
+                          className="btn"
+                        >
+                          Create Your First Form
+                        </button>
+                      </div>
+                    ) : null}
+                  </div>
                 )}
 
                 {/* Community Highlights View */}
