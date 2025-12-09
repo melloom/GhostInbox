@@ -704,6 +704,7 @@ CREATE POLICY "Collaborative projects: owners can manage"
 DROP POLICY IF EXISTS "Project contributions: public can insert, owners can select" ON public.project_contributions;
 DROP POLICY IF EXISTS "Project contributions: public can insert" ON public.project_contributions;
 DROP POLICY IF EXISTS "Project contributions: owners can select" ON public.project_contributions;
+DROP POLICY IF EXISTS "Project contributions: public can select active" ON public.project_contributions;
 
 CREATE POLICY "Project contributions: public can insert"
   ON public.project_contributions
