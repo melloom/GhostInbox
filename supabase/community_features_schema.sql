@@ -467,6 +467,9 @@ CREATE POLICY "Community votes: owners can manage"
   );
 
 DROP POLICY IF EXISTS "Vote options: owners can manage, public can select active" ON public.vote_options;
+DROP POLICY IF EXISTS "Vote options: owners can manage" ON public.vote_options;
+DROP POLICY IF EXISTS "Vote options: public can select active" ON public.vote_options;
+
 CREATE POLICY "Vote options: owners can manage"
   ON public.vote_options
   FOR ALL
@@ -499,6 +502,9 @@ CREATE POLICY "Vote options: public can select active"
   );
 
 DROP POLICY IF EXISTS "Vote responses: public can insert, owners can select" ON public.vote_responses;
+DROP POLICY IF EXISTS "Vote responses: public can insert" ON public.vote_responses;
+DROP POLICY IF EXISTS "Vote responses: owners can select" ON public.vote_responses;
+
 CREATE POLICY "Vote responses: public can insert"
   ON public.vote_responses
   FOR INSERT
@@ -543,6 +549,9 @@ CREATE POLICY "Feedback forms: owners can manage"
   );
 
 DROP POLICY IF EXISTS "Feedback responses: public can insert, owners can select" ON public.feedback_responses;
+DROP POLICY IF EXISTS "Feedback responses: public can insert" ON public.feedback_responses;
+DROP POLICY IF EXISTS "Feedback responses: owners can select" ON public.feedback_responses;
+
 CREATE POLICY "Feedback responses: public can insert"
   ON public.feedback_responses
   FOR INSERT
@@ -586,6 +595,7 @@ CREATE POLICY "Community highlights: owners can manage"
     )
   );
 
+DROP POLICY IF EXISTS "Community highlights: public can select featured" ON public.community_highlights;
 CREATE POLICY "Community highlights: public can select featured"
   ON public.community_highlights
   FOR SELECT
@@ -593,6 +603,10 @@ CREATE POLICY "Community highlights: public can select featured"
 
 -- Message Reactions policies
 DROP POLICY IF EXISTS "Message reactions: public can insert and select" ON public.message_reactions;
+DROP POLICY IF EXISTS "Message reactions: public can insert" ON public.message_reactions;
+DROP POLICY IF EXISTS "Message reactions: public can select" ON public.message_reactions;
+DROP POLICY IF EXISTS "Message reactions: owners can delete" ON public.message_reactions;
+
 CREATE POLICY "Message reactions: public can insert"
   ON public.message_reactions
   FOR INSERT
@@ -635,6 +649,7 @@ CREATE POLICY "Community goals: owners can manage"
     )
   );
 
+DROP POLICY IF EXISTS "Community goals: public can select active" ON public.community_goals;
 CREATE POLICY "Community goals: public can select active"
   ON public.community_goals
   FOR SELECT
@@ -660,6 +675,7 @@ CREATE POLICY "Community events: owners can manage"
     )
   );
 
+DROP POLICY IF EXISTS "Community events: public can select active" ON public.community_events;
 CREATE POLICY "Community events: public can select active"
   ON public.community_events
   FOR SELECT
@@ -686,6 +702,9 @@ CREATE POLICY "Collaborative projects: owners can manage"
   );
 
 DROP POLICY IF EXISTS "Project contributions: public can insert, owners can select" ON public.project_contributions;
+DROP POLICY IF EXISTS "Project contributions: public can insert" ON public.project_contributions;
+DROP POLICY IF EXISTS "Project contributions: owners can select" ON public.project_contributions;
+
 CREATE POLICY "Project contributions: public can insert"
   ON public.project_contributions
   FOR INSERT
