@@ -6249,6 +6249,46 @@ export default function Dashboard() {
                     ) : showCreateHighlight ? (
                       <div className="create-poll-form">
                         <div className="form-group">
+                          <label>Select Message to Feature (optional)</label>
+                          <select
+                            className="input"
+                            value={newHighlightMessageId || ''}
+                            onChange={(e) => {
+                              const messageId = e.target.value || null
+                              setNewHighlightMessageId(messageId)
+                              if (messageId) {
+                                const selectedMessage = messages.find(m => m.id === messageId)
+                                if (selectedMessage) {
+                                  setNewHighlightText(selectedMessage.body)
+                                  if (!newHighlightTitle.trim()) {
+                                    setNewHighlightTitle(`Message from ${new Date(selectedMessage.created_at).toLocaleDateString()}`)
+                                  }
+                                }
+                              }
+                            }}
+                            disabled={creatingHighlight}
+                          >
+                            <option value="">-- Select a message --</option>
+                            {messages
+                              .filter(m => {
+                                // Only show messages from the primary vent link
+                                return primaryVentLink && m.vent_link_id === primaryVentLink.id
+                              })
+                              .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+                              .slice(0, 50) // Limit to 50 most recent
+                              .map((message) => (
+                                <option key={message.id} value={message.id}>
+                                  {truncateText(message.body, 60)} - {new Date(message.created_at).toLocaleDateString()}
+                                </option>
+                              ))}
+                          </select>
+                          {messages.filter(m => primaryVentLink && m.vent_link_id === primaryVentLink.id).length === 0 && (
+                            <p style={{ fontSize: '13px', color: 'var(--text-secondary)', marginTop: '8px' }}>
+                              No messages available. Messages will appear here once you receive them.
+                            </p>
+                          )}
+                        </div>
+                        <div className="form-group">
                           <label>Highlight Title</label>
                           <input
                             type="text"
@@ -6263,12 +6303,17 @@ export default function Dashboard() {
                           <label>Highlight Text</label>
                           <textarea
                             className="input"
-                            placeholder="Share the standout story or quote"
+                            placeholder="Share the standout story or quote (or select a message above)"
                             value={newHighlightText}
                             onChange={(e) => setNewHighlightText(e.target.value)}
                             disabled={creatingHighlight}
-                            rows={3}
+                            rows={4}
                           />
+                          {newHighlightMessageId && (
+                            <p style={{ fontSize: '12px', color: 'var(--text-secondary)', marginTop: '4px' }}>
+                              ✓ Linked to message
+                            </p>
+                          )}
                         </div>
                         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '12px' }}>
                           <div className="form-group" style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
@@ -6344,6 +6389,33 @@ export default function Dashboard() {
                                 {highlight.highlight_text && (
                                   <p style={{ marginTop: '4px', color: 'var(--text-secondary)' }}>
                                     {highlight.highlight_text}
+                                  </p>
+                                )}
+                                {highlight.message_id && (
+                                  <p style={{ marginTop: '8px', fontSize: '12px', color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                                    <span>🔗</span>
+                                    <span>Linked to message</span>
+                                    <button
+                                      onClick={() => {
+                                        const linkedMessage = messages.find(m => m.id === highlight.message_id)
+                                        if (linkedMessage) {
+                                          setActiveTab('messages')
+                                          setSelectedMessage(linkedMessage)
+                                        }
+                                      }}
+                                      style={{
+                                        marginLeft: '8px',
+                                        padding: '2px 8px',
+                                        fontSize: '11px',
+                                        background: 'var(--accent)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer'
+                                      }}
+                                    >
+                                      View Message
+                                    </button>
                                   </p>
                                 )}
                               </div>
