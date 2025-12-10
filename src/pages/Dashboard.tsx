@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { supabase, VentLink, VentMessage, Profile, PollWithOptions, MessageFolder, MessageFolderAssignment, QASession, QAQuestion, Challenge, ChallengeSubmission, Raffle, RaffleEntry, CommunityVoteWithOptions, FeedbackForm, CommunityHighlight, MessageReaction, CommunityGoal, CommunityEvent, CollaborativeProject } from '../lib/supabase'
 import { useNavigate } from 'react-router-dom'
 import { generateReplyTemplates, summarizeThemes } from '../lib/ai'
+import { validateHandle, normalizeHandle } from '../lib/validation'
 import './Dashboard.css'
 
 export default function Dashboard() {
@@ -47,6 +48,11 @@ export default function Dashboard() {
   const [newTemplateName, setNewTemplateName] = useState('')
   const [editingDisplayName, setEditingDisplayName] = useState(false)
   const [newDisplayName, setNewDisplayName] = useState('')
+  const [editingHandle, setEditingHandle] = useState(false)
+  const [newHandle, setNewHandle] = useState('')
+  const [editingEmail, setEditingEmail] = useState(false)
+  const [newEmail, setNewEmail] = useState(')
+  const [userEmail, setUserEmail] = useState<string | null>(null)
   const [updatingProfile, setUpdatingProfile] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
   const [showAdvancedSearch, setShowAdvancedSearch] = useState(false)
@@ -61,6 +67,7 @@ export default function Dashboard() {
   const [showResponseModal, setShowResponseModal] = useState(false)
   const [responseText, setResponseText] = useState('')
   const [responseTemplates, setResponseTemplates] = useState<Array<{ id: string; name: string; text: string }>>([])
+  const [messageResponsesData, setMessageResponsesData] = useState<{ [messageId: string]: Array<{ id: string; response_text: string; created_at: string; owner_id: string }> }>({})
   const [messageFolders, setMessageFolders] = useState<MessageFolder[]>([])
   const [messageFolderAssignments, setMessageFolderAssignments] = useState<{ [messageId: string]: string[] }>({})
   const [showCreateFolder, setShowCreateFolder] = useState(false)
@@ -1133,13 +1140,42 @@ export default function Dashboard() {
     // Load user email for settings display
     if (activeTab === 'settings') {
       getCurrentUserEmail().then((email) => {
-        const emailDisplay = document.getElementById('user-email-display')
-        if (emailDisplay) {
-          emailDisplay.textContent = email || 'Not available'
-        }
+        setUserEmail(email)
       })
     }
   }, [activeTab])
+
+  // Fetch responses when message is selected and set up realtime
+  useEffect(() => {
+    if (!selectedMessage) return
+
+    // Fetch initial responses
+    fetchMessageResponses(selectedMessage.id)
+
+    // Set up realtime subscription for message responses
+    const responsesChannel = supabase
+      .channel(`message_responses:${selectedMessage.id}`)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'message_responses',
+          filter: `message_id=eq.${selectedMessage.id}`,
+        },
+        (payload) => {
+          console.log('Response change:', payload)
+          // Refetch responses when any change occurs
+          fetchMessageResponses(selectedMessage.id)
+        }
+      )
+      .subscribe()
+
+    return () => {
+      responsesChannel.unsubscribe()
+    }
+  }, [selectedMessage])
+
 
   async function fetchData() {
     try {
@@ -3961,6 +3997,26 @@ export default function Dashboard() {
   }
 
   // Private Response
+  // Fetch responses for a message
+  async function fetchMessageResponses(messageId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('message_responses')
+        .select('id, response_text, created_at, owner_id')
+        .eq('message_id', messageId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      
+      setMessageResponsesData(prev => ({
+        ...prev,
+        [messageId]: data || []
+      }))
+    } catch (err: any) {
+      console.error('Error fetching responses:', err)
+    }
+  }
+
   async function sendResponse(messageId: string) {
     if (!profile || !responseText.trim()) return
 
@@ -3978,7 +4034,8 @@ export default function Dashboard() {
       
       setShowResponseModal(false)
       setResponseText('')
-      alert('Response saved! (Note: Anonymous senders cannot receive responses directly)')
+      await fetchMessageResponses(messageId)
+      alert('Response sent! The sender will see it when they check their message.')
     } catch (err: any) {
       console.error('Error saving response:', err)
       alert('Error saving response: ' + (err.message || 'Unknown error'))
@@ -4003,6 +4060,78 @@ export default function Dashboard() {
     } catch (err: any) {
       console.error('Error updating display name:', err)
       alert('Failed to update display name: ' + (err.message || 'Unknown error'))
+    } finally {
+      setUpdatingProfile(false)
+    }
+  }
+
+  async function updateHandle() {
+    if (!profile || !newHandle.trim()) return
+
+    // Normalize and validate the handle
+    const normalized = normalizeHandle(newHandle)
+    const validation = validateHandle(normalized)
+    
+    if (!validation.valid) {
+      alert(validation.error || 'Invalid handle')
+      return
+    }
+
+    setUpdatingProfile(true)
+    try {
+      // Check if handle is already taken
+      const { data: existingProfile } = await supabase
+        .from('profiles')
+        .select('id')
+        .eq('handle', normalized)
+        .single()
+
+      if (existingProfile && existingProfile.id !== profile.id) {
+        alert('This handle is already taken')
+        setUpdatingProfile(false)
+        return
+      }
+
+      const { error } = await supabase
+        .from('profiles')
+        .update({ handle: normalized })
+        .eq('id', profile.id)
+
+      if (error) throw error
+
+      setProfile({ ...profile, handle: normalized })
+      setEditingHandle(false)
+      setNewHandle('')
+    } catch (err: any) {
+      console.error('Error updating handle:', err)
+      alert('Failed to update handle: ' + (err.message || 'Unknown error'))
+    } finally {
+      setUpdatingProfile(false)
+
+  async function updateEmail() {
+    if (!newEmail.trim()) return
+
+    // Basic email validation
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!emailRegex.test(newEmail.trim())) {
+      alert('Please enter a valid email address')
+      return
+    }
+
+    setUpdatingProfile(true)
+    try {
+      const { data, error } = await supabase.auth.updateUser({
+        email: newEmail.trim()
+      })
+
+      if (error) throw error
+
+      alert('Verification email sent! Please check your inbox to confirm the new email address.')
+      setEditingEmail(false)
+      setNewEmail('')
+    } catch (err: any) {
+      console.error('Error updating email:', err)
+      alert('Failed to update email: ' + (err.message || 'Unknown error'))
     } finally {
       setUpdatingProfile(false)
     }
@@ -4247,10 +4376,52 @@ export default function Dashboard() {
                   <div className="settings-item">
                     <div className="settings-item-label">
                       <label>Handle</label>
-                      <span className="settings-hint">Your unique identifier (cannot be changed)</span>
+                      <span className="settings-hint">Your unique identifier</span>
                     </div>
                     <div className="settings-item-value">
-                      <span>@{profile?.handle || 'Not set'}</span>
+                      {editingHandle ? (
+                        <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                          <input
+                            type="text"
+                            className="input"
+                            value={newHandle}
+                            onChange={(e) => setNewHandle(e.target.value)}
+                            placeholder="Enter handle (3-30 characters, lowercase, alphanumeric, _, -)"
+                            disabled={updatingProfile}
+                            autoFocus
+                          />
+                          <button
+                            onClick={updateHandle}
+                            className="btn btn-small"
+                            disabled={updatingProfile || !newHandle.trim()}
+                          >
+                            {updatingProfile ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingHandle(false)
+                              setNewHandle('')
+                            }}
+                            className="btn btn-secondary btn-small"
+                            disabled={updatingProfile}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span>@{profile?.handle || 'Not set'}</span>
+                          <button
+                            onClick={() => {
+                              setNewHandle(profile?.handle || '')
+                              setEditingHandle(true)
+                            }}
+                            className="btn btn-secondary btn-small"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                   <div className="settings-item">
@@ -4259,7 +4430,49 @@ export default function Dashboard() {
                       <span className="settings-hint">Your account email address</span>
                     </div>
                     <div className="settings-item-value">
-                      <span id="user-email-display">Loading...</span>
+                      {editingEmail ? (
+                        <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
+                          <input
+                            type="email"
+                            className="input"
+                            value={newEmail}
+                            onChange={(e) => setNewEmail(e.target.value)}
+                            placeholder="Enter new email address"
+                            disabled={updatingProfile}
+                            autoFocus
+                          />
+                          <button
+                            onClick={updateEmail}
+                            className="btn btn-small"
+                            disabled={updatingProfile || !newEmail.trim()}
+                          >
+                            {updatingProfile ? 'Saving...' : 'Save'}
+                          </button>
+                          <button
+                            onClick={() => {
+                              setEditingEmail(false)
+                              setNewEmail('')
+                            }}
+                            className="btn btn-secondary btn-small"
+                            disabled={updatingProfile}
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      ) : (
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <span>{userEmail || 'Loading...'}</span>
+                          <button
+                            onClick={() => {
+                              setNewEmail(userEmail || '')
+                              setEditingEmail(true)
+                            }}
+                            className="btn btn-secondary btn-small"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
@@ -9051,6 +9264,29 @@ export default function Dashboard() {
                     <div className="ai-output">{aiReplies}</div>
                   </div>
                 )}
+
+                {/* Responses Section */}
+                {selectedMessage && messageResponsesData[selectedMessage.id] && messageResponsesData[selectedMessage.id].length > 0 && (
+                  <div className="responses-section" style={{ marginTop: '24px', padding: '20px', background: 'var(--bg-secondary)', borderRadius: '12px', border: '1px solid var(--border)' }}>
+                    <h4 style={{ marginBottom: '16px', display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <span>💬</span>
+                      <span>Responses ({messageResponsesData[selectedMessage.id].length})</span>
+                    </h4>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                      {messageResponsesData[selectedMessage.id].map((response) => (
+                        <div key={response.id} style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                          <div style={{ fontSize: '14px', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', marginBottom: '8px' }}>
+                            {response.response_text}
+                          </div>
+                          <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                            <span>{new Date(response.created_at).toLocaleString()}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 </div>
             )}
 
@@ -9069,7 +9305,7 @@ export default function Dashboard() {
                 </div>
                   <div className="modal-body">
                     <p className="modal-hint">
-                      Note: Anonymous senders cannot receive responses directly. This response will be saved for your records.
+                      Your response will be saved and visible to the message sender when they check their message.
                     </p>
                     {responseTemplates.length > 0 && (
                       <div className="template-selector">
@@ -9096,7 +9332,7 @@ export default function Dashboard() {
                       rows={6}
                     />
                   </div>
-                  <div className="modal-footer">
+                  <div className="modal-actions">
                             <button
                       className="btn btn-secondary"
                       onClick={() => {

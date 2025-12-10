@@ -51,6 +51,9 @@ export default function VentPage() {
   const [activeFeedbackForms, setActiveFeedbackForms] = useState<FeedbackForm[]>([])
   const [feedbackResponses, setFeedbackResponses] = useState<{ [formId: string]: string }>({})
   const [submittingFeedback, setSubmittingFeedback] = useState<string | null>(null)
+  const [userMessageIds, setUserMessageIds] = useState<string[]>([])
+  const [messageResponses, setMessageResponses] = useState<{ [messageId: string]: Array<{ id: string; response_text: string; created_at: string }> }>({})
+  const [showResponses, setShowResponses] = useState(false)
 
   useEffect(() => {
     if (!slug) return
@@ -521,6 +524,78 @@ export default function VentPage() {
     }
   }, [ventLink, activeVotes])
 
+  // Load user's message IDs from localStorage
+  useEffect(() => {
+    if (!ventLink) return
+    
+    const storageKey = `user_messages_${ventLink.id}`
+    const stored = localStorage.getItem(storageKey)
+    if (stored) {
+      try {
+        const messageIds = JSON.parse(stored)
+        setUserMessageIds(messageIds)
+        // Fetch responses for all stored message IDs
+        messageIds.forEach((messageId: string) => {
+          fetchMessageResponses(messageId)
+        })
+      } catch (err) {
+        console.error('Error loading message IDs:', err)
+      }
+    }
+  }, [ventLink])
+
+  // Fetch responses for a message
+  async function fetchMessageResponses(messageId: string) {
+    try {
+      const { data, error } = await supabase
+        .from('message_responses')
+        .select('id, response_text, created_at')
+        .eq('message_id', messageId)
+        .order('created_at', { ascending: false })
+
+      if (error) throw error
+      
+      setMessageResponses(prev => ({
+        ...prev,
+        [messageId]: data || []
+      }))
+    } catch (err: any) {
+      console.error('Error fetching responses:', err)
+    }
+  }
+
+  // Set up realtime subscription for responses to user's messages
+  useEffect(() => {
+    if (!ventLink || userMessageIds.length === 0) return
+
+    const channels = userMessageIds.map(messageId => {
+      return supabase
+        .channel(`user_responses:${messageId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: '*',
+            schema: 'public',
+            table: 'message_responses',
+            filter: `message_id=eq.${messageId}`,
+          },
+          (payload) => {
+            console.log('New response received:', payload)
+            // Refetch responses when new response is added
+            fetchMessageResponses(messageId)
+            // Show notification
+            setStatus('You have a new response! Check your messages below.')
+          }
+        )
+        .subscribe()
+    })
+
+    return () => {
+      channels.forEach(channel => channel.unsubscribe())
+    }
+  }, [ventLink, userMessageIds])
+
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
     if (!ventLink) return
@@ -560,7 +635,7 @@ export default function VentPage() {
 
       // Get IP hash for rate limiting (done server-side, but we can pass it)
       // The Edge Function will hash the IP automatically
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('vent_messages')
         .insert({
           vent_link_id: ventLink.id,
@@ -568,6 +643,8 @@ export default function VentPage() {
           mood: mood || null,
           ip_hash: null, // Will be set by database trigger or Edge Function
         })
+        .select('id')
+        .single()
 
       if (error) {
         // Sanitize error message before showing to user
@@ -576,6 +653,20 @@ export default function VentPage() {
         return
       }
 
+
+      // Store message ID in localStorage so user can receive responses
+      if (insertedData?.id) {
+        const storageKey = `user_messages_${ventLink.id}`
+        const existing = localStorage.getItem(storageKey)
+        const messageIds = existing ? JSON.parse(existing) : []
+        if (!messageIds.includes(insertedData.id)) {
+          messageIds.push(insertedData.id)
+          localStorage.setItem(storageKey, JSON.stringify(messageIds))
+          setUserMessageIds(messageIds)
+          // Fetch responses for this message
+          fetchMessageResponses(insertedData.id)
+        }
+      }
       setMessage('')
       setMood('')
       setStatus('Message sent anonymously. Thank you for sharing.')
@@ -601,13 +692,15 @@ export default function VentPage() {
 
     setVoting(true)
     try {
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('poll_votes')
         .insert({
           poll_id: pollId,
           option_id: optionId,
           ip_hash: null,
         })
+        .select('id')
+        .single()
 
       if (error) {
         if (error.message.includes('duplicate') || error.message.includes('unique')) {
@@ -664,13 +757,15 @@ export default function VentPage() {
 
     setVotingOnVote(true)
     try {
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('vote_responses')
         .insert({
           vote_id: voteId,
           option_id: optionId,
           ip_hash: null,
         })
+        .select('id')
+        .single()
 
       if (error) {
         if (error.message.includes('duplicate') || error.message.includes('unique')) {
@@ -723,13 +818,15 @@ export default function VentPage() {
 
     setSubmittingFeedback(formId)
     try {
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('feedback_responses')
         .insert({
           form_id: formId,
           response_text: responseText.trim(),
           ip_hash: null,
         })
+        .select('id')
+        .single()
 
       if (error) {
         const sanitizedError = sanitizeErrorMessage(error)
@@ -756,13 +853,15 @@ export default function VentPage() {
 
     setSubmittingQuestion(sessionId)
     try {
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('qa_questions')
         .insert({
           qa_session_id: sessionId,
           question_text: questionText.trim(),
           ip_hash: null,
         })
+        .select('id')
+        .single()
 
       if (error) {
         const sanitizedError = sanitizeErrorMessage(error)
@@ -801,13 +900,15 @@ export default function VentPage() {
 
     setSubmittingChallenge(challengeId)
     try {
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('challenge_submissions')
         .insert({
           challenge_id: challengeId,
           submission_text: submissionText.trim(),
           ip_hash: null,
         })
+        .select('id')
+        .single()
 
       if (error) {
         const sanitizedError = sanitizeErrorMessage(error)
@@ -846,13 +947,15 @@ export default function VentPage() {
 
     setEnteringRaffle(raffleId)
     try {
-      const { error } = await supabase
+      const { data: insertedData, error } = await supabase
         .from('raffle_entries')
         .insert({
           raffle_id: raffleId,
           entry_name: entryName.trim(),
           ip_hash: null,
         })
+        .select('id')
+        .single()
 
       if (error) {
         const sanitizedError = sanitizeErrorMessage(error)
@@ -1048,6 +1151,91 @@ export default function VentPage() {
                 </button>
               </form>
             </div>
+
+            {/* Responses Section */}
+            {userMessageIds.length > 0 && (
+              <div className="responses-section" style={{ marginTop: '24px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                  <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span>💬</span>
+                    <span>Responses to Your Messages</span>
+                  </h3>
+                  <button
+                    onClick={() => setShowResponses(!showResponses)}
+                    className="btn btn-small"
+                    style={{ fontSize: '14px', padding: '6px 12px' }}
+                  >
+                    {showResponses ? 'Hide' : 'Show'} ({userMessageIds.length})
+                  </button>
+                </div>
+                
+                {showResponses && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+                    {userMessageIds.map((messageId) => {
+                      const responses = messageResponses[messageId] || []
+                      if (responses.length === 0) return null
+                      
+                      return (
+                        <div key={messageId} style={{ 
+                          padding: '16px', 
+                          background: 'var(--bg-card)', 
+                          borderRadius: '12px', 
+                          border: '1px solid var(--border)',
+                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
+                        }}>
+                          <div style={{ 
+                            fontSize: '12px', 
+                            color: 'var(--text-secondary)', 
+                            marginBottom: '12px',
+                            fontWeight: 500
+                          }}>
+                            Response{responses.length > 1 ? 's' : ''} ({responses.length})
+                          </div>
+                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                            {responses.map((response) => (
+                              <div key={response.id} style={{ 
+                                padding: '12px', 
+                                background: 'var(--bg-secondary)', 
+                                borderRadius: '8px',
+                                borderLeft: '3px solid var(--accent)'
+                              }}>
+                                <div style={{ 
+                                  fontSize: '14px', 
+                                  color: 'var(--text-primary)', 
+                                  whiteSpace: 'pre-wrap',
+                                  marginBottom: '8px',
+                                  lineHeight: '1.5'
+                                }}>
+                                  {response.response_text}
+                                </div>
+                                <div style={{ 
+                                  fontSize: '12px', 
+                                  color: 'var(--text-secondary)'
+                                }}>
+                                  {new Date(response.created_at).toLocaleString()}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )
+                    })}
+                    {userMessageIds.every(id => !messageResponses[id] || messageResponses[id].length === 0) && (
+                      <div style={{ 
+                        padding: '20px', 
+                        textAlign: 'center', 
+                        color: 'var(--text-secondary)',
+                        background: 'var(--bg-secondary)',
+                        borderRadius: '8px'
+                      }}>
+                        No responses yet. Check back later!
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+
           </div>
         )}
 
