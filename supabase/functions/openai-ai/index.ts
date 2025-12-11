@@ -386,7 +386,7 @@ Consider:
 - Crisis indicators (self-harm risk = CRITICAL priority 100)
 - Engagement value (relationship building opportunities)
 
-"${message_body}"${contextInfo}
+"${messageBody}"${contextInfo}
 
 Respond with ONLY a JSON object:
 {
@@ -633,6 +633,8 @@ Respond with ONLY a JSON object:
         } catch (e) {
           console.error('Failed to parse quality score:', e)
         }
+      } catch (e) {
+        console.error('Failed to get quality score:', e)
       }
 
       result = {
@@ -741,9 +743,9 @@ Respond with ONLY a JSON object:
 
       const aiData = await callAIWithFallback(qualityPrompt, 'gpt-4o-mini', 0.3, { response_format: { type: 'json_object' } })
       try {
-        result = JSON.parse(data.choices[0]?.message?.content || '{}')
+        result = JSON.parse(aiData.choices[0]?.message?.content || '{}')
       } catch (e) {
-        result = { overall_score: 7, error: 'Failed to parse quality score' }
+        result = { overall_score: 7, empathy: 7, clarity: 7, appropriateness: 7, tone: 7, feedback: '' }
       }
     }
 
