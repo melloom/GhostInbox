@@ -4375,7 +4375,18 @@ export default function Dashboard() {
     } catch (error: any) {
       console.error('Error generating summary:', error)
       const errorMessage = error?.message || 'Unknown error occurred'
-      setThemeSummary(`Error: ${errorMessage}`)
+      
+      // Provide helpful error messages
+      let userFriendlyMessage = errorMessage
+      if (errorMessage.includes('not available') || errorMessage.includes('not deployed')) {
+        userFriendlyMessage = 'AI service is not available. Please ensure the Edge Function is deployed in Supabase Dashboard.'
+      } else if (errorMessage.includes('Network error') || errorMessage.includes('Failed to send')) {
+        userFriendlyMessage = 'Network error. Please check your connection. If the problem persists, the Edge Function may not be deployed.'
+      } else if (errorMessage.includes('Authentication failed')) {
+        userFriendlyMessage = 'Please log out and log back in to refresh your session.'
+      }
+      
+      setThemeSummary(`❌ Error: ${userFriendlyMessage}`)
     } finally {
       setLoadingSummary(false)
     }
@@ -11140,9 +11151,8 @@ export default function Dashboard() {
                           )}
                         </div>
                       )}
-          </div>
-                </div>
-                </div>
+                    </div>
+                  </div>
 
                 {/* Actions */}
                 <div className="message-actions-modern">
@@ -11238,73 +11248,9 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
-
-                </div>
+              </div>
+            </div>
             )}
-
-            {/* Response Modal */}
-            {showResponseModal && selectedMessage && (
-              <div className="modal-overlay" onClick={() => setShowResponseModal(false)}>
-                <div className="modal-content" onClick={(e) => e.stopPropagation()}>
-                  <div className="modal-header">
-                    <h3>Send Private Response</h3>
-                    <button
-                      className="btn-close"
-                      onClick={() => setShowResponseModal(false)}
-                    >
-                      ×
-                    </button>
-                </div>
-                  <div className="modal-body">
-                    <p className="modal-hint">
-                      Your response will be saved and visible to the message sender when they check their message.
-                    </p>
-                    {responseTemplates.length > 0 && (
-                      <div className="template-selector">
-                        <label>Use Template:</label>
-                        <select
-                          className="select"
-                          onChange={(e) => {
-                            const template = responseTemplates.find(t => t.id === e.target.value)
-                            if (template) setResponseText(template.text)
-                          }}
-                        >
-                          <option value="">Select a template...</option>
-                          {responseTemplates.map(t => (
-                            <option key={t.id} value={t.id}>{t.name}</option>
-                          ))}
-                        </select>
-                          </div>
-                    )}
-                    <textarea
-                      value={responseText}
-                      onChange={(e) => setResponseText(e.target.value)}
-                      placeholder="Type your response..."
-                      className="response-textarea"
-                      rows={6}
-                    />
-                  </div>
-                  <div className="modal-actions">
-                            <button
-                      className="btn btn-secondary"
-                      onClick={() => {
-                        setShowResponseModal(false)
-                        setResponseText('')
-                      }}
-                    >
-                      Cancel
-                            </button>
-                            <button
-                      className="btn"
-                      onClick={() => sendResponse(selectedMessage.id)}
-                      disabled={!responseText.trim()}
-                    >
-                      Save Response
-                            </button>
-                          </div>
-                        </div>
-                </div>
-              )}
             </div>
           ) : null}
 
@@ -11357,6 +11303,12 @@ export default function Dashboard() {
                   >
                     {loadingAi ? 'Generating...' : 'Generate reply'}
                   </button>
+                  <button
+                    className="btn btn-primary"
+                    onClick={() => setShowResponseModal(true)}
+                  >
+                    Send Private Response
+                  </button>
                 </div>
                 {aiReplies && (
                   <div className="ai-replies-section">
@@ -11364,6 +11316,94 @@ export default function Dashboard() {
                     <div className="ai-output">{aiReplies}</div>
                   </div>
                 )}
+                {/* Show existing responses if any */}
+                {messageResponsesData[selectedMessage.id] && messageResponsesData[selectedMessage.id].length > 0 && (
+                  <div className="message-responses-section">
+                    <h4>Your Response</h4>
+                    {messageResponsesData[selectedMessage.id].map((response) => (
+                      <div key={response.id}>
+                        <div className="response-text">
+                          {response.response_text}
+                        </div>
+                        <div className="response-meta">
+                          <span className="timestamp">
+                            Sent {formatTimeAgo(response.created_at)}
+                          </span>
+                          <button
+                            className="btn btn-small btn-danger"
+                            onClick={() => deleteResponse(response.id, selectedMessage.id)}
+                          >
+                            Delete
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* Response Modal - Available for both Overview and Messages tabs */}
+          {showResponseModal && selectedMessage && (
+            <div className="modal-overlay" onClick={() => setShowResponseModal(false)}>
+              <div className="modal-content" onClick={(e) => e.stopPropagation()}>
+                <div className="modal-header">
+                  <h3>Send Private Response</h3>
+                  <button
+                    className="btn-close"
+                    onClick={() => setShowResponseModal(false)}
+                  >
+                    ×
+                  </button>
+                </div>
+                <div className="modal-body">
+                  <p className="modal-hint">
+                    Your response will be saved and visible to the message sender when they check their message.
+                  </p>
+                  {responseTemplates.length > 0 && (
+                    <div className="template-selector">
+                      <label>Use Template:</label>
+                      <select
+                        className="select"
+                        onChange={(e) => {
+                          const template = responseTemplates.find(t => t.id === e.target.value)
+                          if (template) setResponseText(template.text)
+                        }}
+                      >
+                        <option value="">Select a template...</option>
+                        {responseTemplates.map(t => (
+                          <option key={t.id} value={t.id}>{t.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                  <textarea
+                    value={responseText}
+                    onChange={(e) => setResponseText(e.target.value)}
+                    placeholder="Type your response..."
+                    className="response-textarea"
+                    rows={6}
+                  />
+                </div>
+                <div className="modal-actions">
+                  <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                      setShowResponseModal(false)
+                      setResponseText('')
+                    }}
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    className="btn"
+                    onClick={() => sendResponse(selectedMessage.id)}
+                    disabled={!responseText.trim()}
+                  >
+                    Save Response
+                  </button>
+                </div>
               </div>
             </div>
           )}

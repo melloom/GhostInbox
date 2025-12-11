@@ -1,6 +1,27 @@
 import { supabase } from './supabase'
 
 /**
+ * Verify that an Edge Function is accessible
+ */
+async function verifyFunctionAccessible(functionName: string): Promise<boolean> {
+  try {
+    const { data: { session } } = await supabase.auth.getSession()
+    if (!session) return false
+    
+    // Try a minimal request to check if function exists
+    const { error } = await supabase.functions.invoke(functionName, {
+      body: { type: 'test' },
+    })
+    
+    // If we get a 404 or "not found", function doesn't exist
+    // If we get other errors (auth, validation), function exists but request was invalid
+    return !error?.message?.includes('not found') && !error?.message?.includes('404')
+  } catch {
+    return false
+  }
+}
+
+/**
  * Generate 3 reply templates for an anonymous vent message
  * Now uses Supabase Edge Function to keep API key secure
  */
@@ -15,6 +36,20 @@ export async function generateReplyTemplates(messageBody: string): Promise<strin
       throw new Error('Message body is required')
     }
 
+    // Diagnostic logging
+    const supabaseUrl = import.meta.env.VITE_SUPABASE_URL
+    if (!supabaseUrl) {
+      console.error('Missing VITE_SUPABASE_URL environment variable')
+      throw new Error('Supabase configuration is missing. Please check your .env file.')
+    }
+
+    console.log('Calling Edge Function:', {
+      functionName: 'openai-ai',
+      supabaseUrl: supabaseUrl.substring(0, 30) + '...',
+      hasSession: !!session,
+      sessionUserId: session?.user?.id
+    })
+
     const { data, error } = await supabase.functions.invoke('openai-ai', {
       body: {
         type: 'reply-templates',
@@ -23,33 +58,84 @@ export async function generateReplyTemplates(messageBody: string): Promise<strin
     })
 
     if (error) {
-      if (import.meta.env.DEV) {
-        console.error('Error calling OpenAI function:', error)
+      console.error('Error calling OpenAI function:', {
+        error,
+        errorMessage: error.message,
+        errorName: error.name,
+        errorStack: error.stack,
+        fullError: JSON.stringify(error, null, 2)
+      })
+      
+      // Check for specific error types
+      if (error.message?.includes('Function not found') || 
+          error.message?.includes('404') || 
+          error.message?.includes('not found')) {
+        throw new Error('AI service is not available. Please ensure the Edge Function "openai-ai" is deployed in Supabase.')
       }
-      if (error.message?.includes('Function not found') || error.message?.includes('404')) {
-        throw new Error('AI service is not available. Please ensure the Edge Function is deployed.')
+      
+      if (error.message?.includes('Failed to fetch') || 
+          error.message?.includes('network') ||
+          error.message?.includes('Failed to send') ||
+          error.message?.includes('Network error') ||
+          error.message?.includes('Failed to send a request') ||
+          error.name === 'TypeError') {
+        // Provide more specific guidance
+        console.error('Network error details:', {
+          error,
+          errorName: error.name,
+          errorMessage: error.message,
+          functionName: 'openai-ai',
+          hasSession: !!session,
+          supabaseUrl: supabaseUrl ? supabaseUrl.substring(0, 30) + '...' : 'MISSING'
+        })
+        
+        // Check if it's a CORS or URL issue
+        if (error.message?.includes('CORS') || error.message?.includes('cross-origin')) {
+          throw new Error('CORS error: The Edge Function may not be properly configured. Please check your Supabase project settings.')
+        }
+        
+        throw new Error(`Network error connecting to AI service. Please check: 1) Your internet connection, 2) Edge Function "openai-ai" is deployed (Supabase Dashboard → Edge Functions), 3) You are logged in, 4) OPENAI_API_KEY is set in Edge Function secrets (Supabase Dashboard → Project Settings → Edge Functions → Secrets). Error: ${error.message || error.name || 'Unknown'}`)
       }
-      if (error.message?.includes('Failed to fetch') || error.message?.includes('network')) {
-        throw new Error('Network error. Please check your connection and try again.')
-      }
-      if (error.message?.includes('Unauthorized') || error.message?.includes('401')) {
+      
+      if (error.message?.includes('Unauthorized') || 
+          error.message?.includes('401') ||
+          error.message?.includes('Missing authorization')) {
         throw new Error('Authentication failed. Please log in again.')
       }
-      throw new Error(error.message || 'Failed to generate replies')
+      
+      if (error.message?.includes('OpenAI API key not configured') ||
+          error.message?.includes('500')) {
+        throw new Error('AI service configuration error: OPENAI_API_KEY is not set in Edge Function secrets. Please go to Supabase Dashboard → Project Settings → Edge Functions → Secrets and add OPENAI_API_KEY.')
+      }
+      
+      // Generic error with more context
+      const errorMsg = error.message || 'Unknown error occurred'
+      throw new Error(`Failed to generate replies: ${errorMsg}`)
     }
 
-    if (!data?.result) {
+    if (!data) {
+      throw new Error('AI service returned no data. Please try again.')
+    }
+
+    if (!data.result) {
       throw new Error('AI service returned an empty response. Please try again.')
     }
 
     return data.result
   } catch (error: any) {
-    if (import.meta.env.DEV) {
-      console.error('Error generating reply templates:', error)
-    }
-    if (error?.message && (error.message.startsWith('AI service') || error.message.startsWith('Network') || error.message.startsWith('Authentication'))) {
+    console.error('Error generating reply templates:', error)
+    
+    // Re-throw if it's already a formatted error
+    if (error?.message && (
+      error.message.startsWith('AI service') || 
+      error.message.startsWith('Network') || 
+      error.message.startsWith('Authentication') ||
+      error.message.startsWith('Failed to generate replies')
+    )) {
       throw error
     }
+    
+    // Format unknown errors
     throw new Error(`Failed to generate replies: ${error?.message || 'Unknown error occurred'}`)
   }
 }
