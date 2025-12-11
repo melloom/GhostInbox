@@ -1,0 +1,22 @@
+-- Update existing webhooks to use enhanced moderation
+-- Run this if you already have moderation webhooks set up
+
+-- Instructions:
+-- 1. Go to Supabase Dashboard > Database > Webhooks
+-- 2. Find "AI Moderation Webhook" (or similar)
+-- 3. Edit the webhook
+-- 4. Update the URL from:
+--    https://YOUR_PROJECT.supabase.co/functions/v1/ai-moderation-webhook
+--    to:
+--    https://YOUR_PROJECT.supabase.co/functions/v1/ai-moderation-enhanced
+--
+-- 5. Update the request body to include message history (optional but recommended):
+--    {
+--      "message_id": "{{ $new.id }}",
+--      "message_body": "{{ $new.body }}",
+--      "vent_link_id": "{{ $new.vent_link_id }}",
+--      "is_pre_submission": false
+--    }
+--
+-- Note: The enhanced function will automatically look up message history if needed,
+-- but you can also pass it directly for better context awareness.
