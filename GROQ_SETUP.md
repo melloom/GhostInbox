@@ -10,7 +10,7 @@ The Edge Function has been updated to:
 
 **Name**: `GROQ_API_KEY`
 
-**Value**: Your Groq API key (you provided: `your_groq_api_key_here`)
+**Value**: Your Groq API key (get from https://console.groq.com)
 
 ## 📝 How to Set It Up
 
@@ -20,7 +20,7 @@ The Edge Function has been updated to:
 2. Click **Manage** → **Secrets**
 3. Click **Add Secret**
 4. **Name**: `GROQ_API_KEY`
-5. **Value**: `your_groq_api_key_here`
+5. **Value**: Your Groq API key (get from https://console.groq.com)
 6. Click **Save**
 
 ### Step 2: Keep OpenAI Key (Optional Fallback)
