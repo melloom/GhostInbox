@@ -51,7 +51,7 @@ export default function Dashboard() {
   const [editingHandle, setEditingHandle] = useState(false)
   const [newHandle, setNewHandle] = useState('')
   const [editingEmail, setEditingEmail] = useState(false)
-  const [newEmail, setNewEmail] = useState(')
+  const [newEmail, setNewEmail] = useState('')
   const [userEmail, setUserEmail] = useState<string | null>(null)
   const [updatingProfile, setUpdatingProfile] = useState(false)
   const [searchQuery, setSearchQuery] = useState('')
@@ -4107,6 +4107,8 @@ export default function Dashboard() {
       alert('Failed to update handle: ' + (err.message || 'Unknown error'))
     } finally {
       setUpdatingProfile(false)
+    }
+  }
 
   async function updateEmail() {
     if (!newEmail.trim()) return
@@ -4891,6 +4893,10 @@ export default function Dashboard() {
                           if ((e.target as HTMLElement).closest('.message-checkbox')) return
                           setSelectedMessage(message)
                           setAiReplies(null)
+                          // Mark as read if unread
+                          if (!message.is_read) {
+                            markAsRead(message.id, true)
+                          }
                         }}
                       >
                         <div className="message-card-header">
@@ -4980,9 +4986,9 @@ export default function Dashboard() {
               )}
           </div>
           ) : (
-            <>
-          {/* Statistics Cards */}
-          <div className="stats-grid-modern">
+          <>
+            {/* Statistics Cards */}
+            <div className="stats-grid-modern">
             <div className="stat-card-modern">
               <div className="stat-icon-modern">📨</div>
               <div className="stat-info">
@@ -5025,10 +5031,10 @@ export default function Dashboard() {
                 <div className="stat-label-modern">Read</div>
               </div>
             </div>
-          </div>
+            </div>
 
-          {/* Quick Actions */}
-          {primaryVentLink && (
+            {/* Quick Actions */}
+            {primaryVentLink && (
             <div className="card quick-actions">
               <h2>Quick Actions</h2>
               <div className="actions-grid">
@@ -5083,6 +5089,8 @@ export default function Dashboard() {
                 </button>
               </div>
             </div>
+            )}
+          </>
           )}
 
           {/* Creator Hub - Combined Links & Polls */}
@@ -7600,6 +7608,10 @@ export default function Dashboard() {
                                         if (linkedMessage) {
                                           setActiveTab('messages')
                                           setSelectedMessage(linkedMessage)
+                                          // Mark as read if unread
+                                          if (!linkedMessage.is_read) {
+                                            markAsRead(linkedMessage.id, true)
+                                          }
                                         }
                                       }}
                                       style={{
@@ -8986,6 +8998,10 @@ export default function Dashboard() {
                       onClick={() => {
                         setSelectedMessage(message)
                         setAiReplies(null) // Clear AI replies when selecting new message
+                        // Mark as read if unread
+                        if (!message.is_read) {
+                          markAsRead(message.id, true)
+                        }
                       }}
                     >
                       <div className="message-preview">
@@ -9084,13 +9100,13 @@ export default function Dashboard() {
                         {messageTags[selectedMessage.id]?.map((tag, idx) => (
                           <span key={idx} className="message-tag-modern">
                             #{tag}
-                  <button
+                            <button
                               className="tag-remove-modern"
                               onClick={() => removeTagFromMessage(selectedMessage.id, tag)}
                               title="Remove tag"
-                  >
+                            >
                               ×
-                  </button>
+                            </button>
                           </span>
                         ))}
                       </div>
@@ -9170,13 +9186,13 @@ export default function Dashboard() {
                             rows={3}
                           />
                           <div className="note-actions-modern">
-                  <button
+                            <button
                               className="btn btn-small"
                               onClick={() => saveNote(selectedMessage.id)}
-                  >
+                            >
                               Save
-                  </button>
-                  <button
+                            </button>
+                            <button
                               className="btn btn-small btn-secondary"
                               onClick={() => {
                                 setEditingNote(null)
@@ -9184,9 +9200,9 @@ export default function Dashboard() {
                               }}
                             >
                               Cancel
-                  </button>
-                </div>
-                  </div>
+                            </button>
+                          </div>
+                        </div>
                       ) : (
                         <div className="note-display-modern">
                           {messageNotes[selectedMessage.id] ? (
@@ -9212,9 +9228,9 @@ export default function Dashboard() {
                             >
                               Add Note
                             </button>
-                )}
-              </div>
-            )}
+                          )}
+                        </div>
+                      )}
           </div>
                 </div>
                 </div>
@@ -9355,8 +9371,6 @@ export default function Dashboard() {
               )}
             </div>
           ) : null}
-            </>
-          )}
 
           {/* Message Detail Modal for All Messages View */}
           {activeTab === 'messages' && selectedMessage && (

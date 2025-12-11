@@ -50,6 +50,7 @@ export default function Signup() {
             id: authData.user.id,
             handle: handle.toLowerCase(),
             display_name: handle,
+            handle_changed: false,
           })
 
         if (profileError) throw profileError

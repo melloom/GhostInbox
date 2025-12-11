@@ -23,6 +23,7 @@ async function ensureProfileExists(user: User) {
       id: user.id,
       handle: handle.toLowerCase().trim(),
       display_name: displayName,
+      handle_changed: false,
     })
 
     if (profileError && !profileError.message.includes('duplicate') && !profileError.message.includes('unique')) {

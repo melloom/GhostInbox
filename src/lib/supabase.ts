@@ -57,6 +57,7 @@ export interface Profile {
   id: string
   handle: string
   display_name: string | null
+  handle_changed: boolean
   created_at: string
 }
 

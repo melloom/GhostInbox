@@ -26,6 +26,7 @@ async function ensureProfileExists(user: User) {
       id: user.id,
           handle: normalizedHandle,
           display_name: displayName || normalizedHandle,
+          handle_changed: false,
     })
 
     if (profileError && !profileError.message.includes('duplicate') && !profileError.message.includes('unique')) {
@@ -167,6 +168,7 @@ export default function LoginPage() {
           id: user.id,
           handle: handle.toLowerCase().trim(),
           display_name: displayName || handle,
+          handle_changed: false,
         })
 
         if (profileError) {
