@@ -23,7 +23,7 @@ export default function Dashboard() {
   const [activeTab, setActiveTab] = useState<'overview' | 'messages' | 'settings'>('overview')
   const [messageFilter, setMessageFilter] = useState<'all' | 'unread' | 'read' | 'flagged' | 'starred' | 'archived' | 'needs-response'>('all')
   const [messageResponses, setMessageResponses] = useState<{ [messageId: string]: boolean }>({})
-  const [messageSort, setMessageSort] = useState<'newest' | 'oldest'>('newest')
+  const [messageSort, setMessageSort] = useState<'newest' | 'oldest' | 'priority'>('newest')
   const [showSettings, setShowSettings] = useState(false)
   const [activeSettingsSection, setActiveSettingsSection] = useState<'profile' | 'vent-links' | 'account' | 'security' | 'notifications' | 'preferences' | 'statistics'>('profile')
   
@@ -6342,6 +6342,7 @@ export default function Dashboard() {
                     >
                       <option value="newest">Newest First</option>
                       <option value="oldest">Oldest First</option>
+                      <option value="priority">Priority (High to Low)</option>
                     </select>
                   </div>
                   {/* Export Buttons */}
@@ -6417,11 +6418,23 @@ export default function Dashboard() {
                   if (messageFilter === 'flagged') return msg.is_flagged && !msg.is_archived
                   if (messageFilter === 'starred') return msg.is_starred && !msg.is_archived
                   if (messageFilter === 'archived') return msg.is_archived
-                  if (messageFilter === 'needs-response') return !msg.is_archived && !messageResponses[msg.id]
+                  if (messageFilter === 'needs-response') {
+                    const hasResponse = messageResponses[msg.id]
+                    const isHighPriority = msg.ai_priority_score !== null && msg.ai_priority_score >= 70
+                    const hasNeedsResponseTag = messageTags[msg.id]?.includes('needs-response')
+                    return !msg.is_archived && !hasResponse && (isHighPriority || hasNeedsResponseTag)
+                  }
                   return true
                 }).sort((a, b) => {
                   const dateA = new Date(a.created_at).getTime()
                   const dateB = new Date(b.created_at).getTime()
+                  if (messageSort === 'priority') {
+                    // Sort by priority score (highest first), then by date
+                    const scoreA = msgA.ai_priority_score ?? 0
+                    const scoreB = msgB.ai_priority_score ?? 0
+                    if (scoreB !== scoreA) return scoreB - scoreA
+                    return dateB - dateA // If same priority, newest first
+                  }
                   return messageSort === 'newest' ? dateB - dateA : dateA - dateB
                 })
 
@@ -10579,6 +10592,61 @@ export default function Dashboard() {
                           <span className="timestamp">{formatTimeAgo(message.created_at)}</span>
                           {!message.is_read && <span className="badge badge-unread">New</span>}
                           {message.is_flagged && <span className="badge badge-flagged">Flagged</span>}
+                          {message.ai_moderation_flagged && (
+                            <span className="badge" style={{
+                              background: message.ai_moderation_severity === 'critical' || message.ai_self_harm_risk === 'critical'
+                                ? '#c0392b'
+                                : message.ai_moderation_severity === 'high' || message.ai_self_harm_risk === 'high'
+                                ? '#ff4757'
+                                : message.ai_self_harm_risk === 'medium'
+                                ? '#ffa502'
+                                : '#ffc107',
+                              color: 'white',
+                              fontWeight: 600
+                            }}>
+                              {message.ai_moderation_severity === 'critical' || message.ai_self_harm_risk === 'critical' ? '🚨 Critical'
+                              : message.ai_self_harm_risk === 'high' || message.ai_self_harm_risk === 'medium' ? '⚠️ Crisis'
+                              : message.ai_moderation_severity === 'high' ? '🔴 High'
+                              : '🤖 Flagged'}
+                            </span>
+                          )}
+                          {message.ai_category && (
+                            <span className="badge" style={{
+                              background: '#667eea',
+                              color: 'white',
+                              fontSize: '11px'
+                            }}>
+                              {message.ai_category === 'question' && '❓'}
+                              {message.ai_category === 'compliment' && '💬'}
+                              {message.ai_category === 'criticism' && '💭'}
+                              {message.ai_category === 'support' && '🤗'}
+                              {message.ai_category === 'feedback' && '📝'}
+                              {message.ai_category === 'suggestion' && '💡'}
+                              {' ' + message.ai_category}
+                            </span>
+                          )}
+                          {message.ai_urgency === 'high' && (
+                            <span className="badge" style={{
+                              background: '#ff5722',
+                              color: 'white'
+                            }}>
+                              🔴 High Priority
+                            </span>
+                          )}
+                          {message.ai_priority_score !== null && message.ai_priority_score !== undefined && (
+                            <span className="badge" style={{
+                              background: message.ai_priority_score >= 70 
+                                ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)'
+                                : message.ai_priority_score >= 50
+                                ? 'linear-gradient(135deg, #feca57 0%, #ff9ff3 100%)'
+                                : '#95a5a6',
+                              color: 'white',
+                              fontWeight: 600,
+                              fontSize: '11px'
+                            }}>
+                              ⭐ {message.ai_priority_score}/100
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>
@@ -10620,6 +10688,241 @@ export default function Dashboard() {
                     </div>
                   )}
                 </div>
+
+                {/* Enhanced AI Moderation Alert */}
+                {selectedMessage.ai_moderation_flagged && (
+                  <div className="ai-moderation-alert" style={{
+                    margin: '16px 0',
+                    padding: '16px',
+                    background: selectedMessage.ai_moderation_severity === 'critical' || selectedMessage.ai_self_harm_risk === 'critical'
+                      ? 'linear-gradient(135deg, #c0392b 0%, #e74c3c 100%)'
+                      : selectedMessage.ai_moderation_severity === 'high' || selectedMessage.ai_self_harm_risk === 'high'
+                      ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)'
+                      : selectedMessage.ai_self_harm_risk === 'medium'
+                      ? 'linear-gradient(135deg, #ffa502 0%, #ff6348 100%)'
+                      : '#fff3cd',
+                    border: `2px solid ${
+                      selectedMessage.ai_moderation_severity === 'critical' || selectedMessage.ai_self_harm_risk === 'critical' ? '#c0392b'
+                      : selectedMessage.ai_moderation_severity === 'high' || selectedMessage.ai_self_harm_risk === 'high' ? '#ff4757'
+                      : selectedMessage.ai_self_harm_risk === 'medium' ? '#ffa502'
+                      : '#ffc107'
+                    }`,
+                    borderRadius: '8px',
+                    color: (selectedMessage.ai_moderation_severity === 'critical' || selectedMessage.ai_moderation_severity === 'high' || selectedMessage.ai_self_harm_risk === 'high' || selectedMessage.ai_self_harm_risk === 'medium') ? 'white' : '#856404',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.15)'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '10px' }}>
+                      <span style={{ fontSize: '24px' }}>
+                        {selectedMessage.ai_moderation_severity === 'critical' || selectedMessage.ai_self_harm_risk === 'critical' ? '🚨'
+                        : selectedMessage.ai_self_harm_risk === 'high' || selectedMessage.ai_self_harm_risk === 'medium' ? '⚠️'
+                        : '🚩'}
+                      </span>
+                      <strong style={{ fontSize: '15px' }}>
+                        {selectedMessage.ai_moderation_severity === 'critical' || selectedMessage.ai_self_harm_risk === 'critical'
+                          ? 'CRITICAL: Immediate Attention Required'
+                          : selectedMessage.ai_self_harm_risk === 'high' || selectedMessage.ai_self_harm_risk === 'medium'
+                          ? 'CRISIS ALERT: High Self-Harm Risk Detected'
+                          : selectedMessage.ai_moderation_severity === 'high'
+                          ? 'HIGH SEVERITY: Content Flagged'
+                          : 'AI Moderation Flag'}
+                      </strong>
+                    </div>
+                    
+                    {selectedMessage.ai_self_harm_risk && selectedMessage.ai_self_harm_risk !== 'none' && (
+                      <div style={{ fontSize: '13px', marginTop: '8px', padding: '10px', background: 'rgba(0,0,0,0.1)', borderRadius: '6px' }}>
+                        <div style={{ marginBottom: '6px' }}>
+                          <strong>Self-Harm Risk Level:</strong> {selectedMessage.ai_self_harm_risk.toUpperCase()}
+                        </div>
+                        {(selectedMessage.ai_self_harm_risk === 'high' || selectedMessage.ai_self_harm_risk === 'critical') && (
+                          <div style={{ marginTop: '8px', padding: '8px', background: 'rgba(255,255,255,0.2)', borderRadius: '4px' }}>
+                            <strong style={{ fontSize: '12px' }}>Crisis Resources:</strong>
+                            <div style={{ fontSize: '11px', marginTop: '4px', lineHeight: '1.6' }}>
+                              • National Suicide Prevention Lifeline: 988<br/>
+                              • Crisis Text Line: Text HOME to 741741<br/>
+                              • If this is an emergency, call 911 immediately
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    
+                    {selectedMessage.ai_moderation_severity && (
+                      <div style={{ fontSize: '13px', marginTop: '8px' }}>
+                        <strong>Severity:</strong> {selectedMessage.ai_moderation_severity.toUpperCase()}
+                        {selectedMessage.ai_moderation_requires_review && (
+                          <span style={{ marginLeft: '8px', padding: '2px 8px', background: 'rgba(255,255,255,0.2)', borderRadius: '4px', fontSize: '11px' }}>
+                            Requires Human Review
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {selectedMessage.ai_moderation_categories && (
+                      <div style={{ marginTop: '8px', fontSize: '12px' }}>
+                        <strong>Detected Issues:</strong>
+                        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px', marginTop: '4px' }}>
+                          {Object.entries(selectedMessage.ai_moderation_categories)
+                            .filter(([_, flagged]) => flagged)
+                            .map(([category]) => (
+                              <span key={category} style={{
+                                padding: '4px 8px',
+                                background: 'rgba(255,255,255,0.2)',
+                                borderRadius: '4px',
+                                fontSize: '11px'
+                              }}>
+                                {category.replace(/_/g, ' ')}
+                              </span>
+                            ))}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {selectedMessage.ai_moderation_score !== null && selectedMessage.ai_moderation_score !== undefined && (
+                      <div style={{ fontSize: '12px', marginTop: '8px', opacity: 0.9 }}>
+                        <strong>Moderation Score:</strong> {(selectedMessage.ai_moderation_score * 100).toFixed(1)}%
+                        {selectedMessage.ai_moderation_false_positive_risk && selectedMessage.ai_moderation_false_positive_risk !== 'low' && (
+                          <span style={{ marginLeft: '8px', fontSize: '11px', opacity: 0.8 }}>
+                            (False positive risk: {selectedMessage.ai_moderation_false_positive_risk})
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    
+                    {selectedMessage.ai_moderation_recommended_action && selectedMessage.ai_moderation_recommended_action !== 'none' && (
+                      <div style={{ fontSize: '12px', marginTop: '8px', fontStyle: 'italic', opacity: 0.9 }}>
+                        Recommended Action: {selectedMessage.ai_moderation_recommended_action}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* AI Priority Score */}
+                {selectedMessage.ai_priority_score !== null && selectedMessage.ai_priority_score !== undefined && (
+                  <div className="ai-priority-score" style={{
+                    margin: '16px 0',
+                    padding: '12px 16px',
+                    background: selectedMessage.ai_priority_score >= 70
+                      ? 'linear-gradient(135deg, #ff6b6b 0%, #ee5a6f 100%)'
+                      : selectedMessage.ai_priority_score >= 50
+                      ? 'linear-gradient(135deg, #feca57 0%, #ff9ff3 100%)'
+                      : 'linear-gradient(135deg, #74b9ff 0%, #0984e3 100%)',
+                    border: '1px solid rgba(255, 255, 255, 0.2)',
+                    borderRadius: '8px',
+                    color: 'white'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                        <span style={{ fontSize: '20px' }}>⭐</span>
+                        <div>
+                          <strong style={{ fontSize: '14px' }}>Priority Score</strong>
+                          <div style={{ fontSize: '12px', opacity: 0.9, marginTop: '2px' }}>
+                            {selectedMessage.ai_priority_score >= 70 && 'High Priority - Needs Response'}
+                            {selectedMessage.ai_priority_score >= 50 && selectedMessage.ai_priority_score < 70 && 'Medium Priority'}
+                            {selectedMessage.ai_priority_score < 50 && 'Low Priority'}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{
+                        fontSize: '32px',
+                        fontWeight: 700,
+                        textShadow: '0 2px 4px rgba(0,0,0,0.2)'
+                      }}>
+                        {selectedMessage.ai_priority_score}
+                      </div>
+                    </div>
+                    <div style={{
+                      marginTop: '12px',
+                      height: '6px',
+                      background: 'rgba(255, 255, 255, 0.3)',
+                      borderRadius: '3px',
+                      overflow: 'hidden'
+                    }}>
+                      <div style={{
+                        height: '100%',
+                        width: `${selectedMessage.ai_priority_score}%`,
+                        background: 'white',
+                        borderRadius: '3px',
+                        transition: 'width 0.3s ease'
+                      }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* AI Categorization Info */}
+                {(selectedMessage.ai_category || selectedMessage.ai_sentiment || selectedMessage.ai_urgency) && (
+                  <div className="ai-categorization-info" style={{
+                    margin: '16px 0',
+                    padding: '12px 16px',
+                    background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
+                    border: '1px solid #764ba2',
+                    borderRadius: '8px',
+                    color: 'white'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '18px' }}>🤖</span>
+                      <strong style={{ fontSize: '14px' }}>AI Analysis</strong>
+                    </div>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px', fontSize: '13px' }}>
+                      {selectedMessage.ai_category && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ opacity: 0.9 }}>Category:</span>
+                          <span style={{
+                            padding: '4px 10px',
+                            background: 'rgba(255, 255, 255, 0.2)',
+                            borderRadius: '12px',
+                            fontWeight: 600,
+                            textTransform: 'capitalize'
+                          }}>
+                            {selectedMessage.ai_category}
+                          </span>
+                        </div>
+                      )}
+                      {selectedMessage.ai_sentiment && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ opacity: 0.9 }}>Sentiment:</span>
+                          <span style={{
+                            padding: '4px 10px',
+                            background: selectedMessage.ai_sentiment === 'positive' 
+                              ? 'rgba(76, 175, 80, 0.3)'
+                              : selectedMessage.ai_sentiment === 'negative'
+                              ? 'rgba(244, 67, 54, 0.3)'
+                              : 'rgba(158, 158, 158, 0.3)',
+                            borderRadius: '12px',
+                            fontWeight: 600,
+                            textTransform: 'capitalize'
+                          }}>
+                            {selectedMessage.ai_sentiment === 'positive' && '😊 '}
+                            {selectedMessage.ai_sentiment === 'negative' && '😔 '}
+                            {selectedMessage.ai_sentiment === 'neutral' && '😐 '}
+                            {selectedMessage.ai_sentiment === 'mixed' && '😕 '}
+                            {selectedMessage.ai_sentiment}
+                          </span>
+                        </div>
+                      )}
+                      {selectedMessage.ai_urgency && (
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                          <span style={{ opacity: 0.9 }}>Urgency:</span>
+                          <span style={{
+                            padding: '4px 10px',
+                            background: selectedMessage.ai_urgency === 'high'
+                              ? 'rgba(255, 87, 34, 0.3)'
+                              : selectedMessage.ai_urgency === 'medium'
+                              ? 'rgba(255, 152, 0, 0.3)'
+                              : 'rgba(158, 158, 158, 0.3)',
+                            borderRadius: '12px',
+                            fontWeight: 600,
+                            textTransform: 'capitalize'
+                          }}>
+                            {selectedMessage.ai_urgency === 'high' && '🔴 '}
+                            {selectedMessage.ai_urgency === 'medium' && '🟡 '}
+                            {selectedMessage.ai_urgency === 'low' && '🟢 '}
+                            {selectedMessage.ai_urgency}
+                          </span>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {/* Info Sections */}
                 <div className="message-info-sections">

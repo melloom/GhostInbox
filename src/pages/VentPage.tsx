@@ -633,7 +633,35 @@ export default function VentPage() {
     setStatus(null)
 
     try {
-      // Check rate limit first
+      // REAL-TIME PRE-SUBMISSION MODERATION CHECK
+      const { data: moderationCheck, error: moderationError } = await supabase.functions.invoke('ai-moderation-enhanced', {
+        body: {
+          message_body: sanitized,
+          vent_link_id: ventLink.id,
+          message_history: userMessages.slice(-3).map(m => ({ body: m.body, created_at: m.created_at })),
+          is_pre_submission: true,
+        },
+      })
+
+      if (!moderationError && moderationCheck?.moderation) {
+        const mod = moderationCheck.moderation
+        if (moderationCheck.should_block) {
+          // Block message submission
+          setStatus(moderationCheck.block_reason || 'This message cannot be sent due to content policy violations.')
+          setSubmitting(false)
+          return
+        }
+        
+        // Warn user if high risk but not blocking
+        if (mod.severity === 'high' || mod.severity === 'critical') {
+          setStatus('⚠️ Warning: This message may contain concerning content. Please review before sending.')
+        } else if (mod.self_harm?.risk_level === 'high' || mod.self_harm?.risk_level === 'critical') {
+          // Show crisis resources
+          setStatus('💙 If you\'re in crisis, please reach out for help. You\'re not alone.')
+        }
+      }
+
+      // Check rate limit
       const { data: rateLimitData, error: rateLimitError } = await supabase.functions.invoke('rate-limit-messages', {
         body: {
           vent_link_id: ventLink.id,

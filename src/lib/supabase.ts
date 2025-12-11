@@ -90,6 +90,22 @@ export interface VentMessage {
   is_flagged: boolean
   is_starred?: boolean
   is_archived?: boolean
+  // AI Moderation fields
+  ai_moderation_score?: number | null
+  ai_moderation_flagged?: boolean | null
+  ai_moderation_categories?: Record<string, boolean> | null
+  ai_self_harm_risk?: 'none' | 'low' | 'medium' | 'high' | 'critical' | null
+  ai_processed_at?: string | null
+  ai_moderation_severity?: 'none' | 'low' | 'medium' | 'high' | 'critical' | null
+  ai_moderation_requires_review?: boolean | null
+  ai_moderation_false_positive_risk?: 'low' | 'medium' | 'high' | null
+  ai_moderation_recommended_action?: 'none' | 'flag' | 'monitor' | 'alert' | 'intervene' | null
+  // AI Categorization fields
+  ai_category?: 'question' | 'compliment' | 'criticism' | 'support' | 'feedback' | 'suggestion' | 'other' | null
+  ai_sentiment?: 'positive' | 'negative' | 'neutral' | 'mixed' | null
+  ai_urgency?: 'low' | 'medium' | 'high' | null
+  // AI Priority Scoring field
+  ai_priority_score?: number | null
 }
 
 export interface VentSummary {
