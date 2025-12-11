@@ -25,6 +25,77 @@ export default function Dashboard() {
   const [messageResponses, setMessageResponses] = useState<{ [messageId: string]: boolean }>({})
   const [messageSort, setMessageSort] = useState<'newest' | 'oldest'>('newest')
   const [showSettings, setShowSettings] = useState(false)
+  const [activeSettingsSection, setActiveSettingsSection] = useState<'profile' | 'vent-links' | 'account' | 'security' | 'notifications' | 'preferences' | 'statistics'>('profile')
+  
+  // Additional settings state
+  const [emailNotifications, setEmailNotifications] = useState(() => {
+    const saved = localStorage.getItem('settings_email_notifications')
+    return saved !== null ? saved === 'true' : true
+  })
+  const [browserNotifications, setBrowserNotifications] = useState(() => {
+    const saved = localStorage.getItem('settings_browser_notifications')
+    return saved !== null ? saved === 'true' : false
+  })
+  const [dailyDigest, setDailyDigest] = useState(() => {
+    const saved = localStorage.getItem('settings_daily_digest')
+    return saved !== null ? saved === 'true' : false
+  })
+  const [defaultMessageView, setDefaultMessageView] = useState(() => {
+    const saved = localStorage.getItem('settings_default_message_view')
+    return saved || 'card'
+  })
+  const [autoMarkRead, setAutoMarkRead] = useState(() => {
+    const saved = localStorage.getItem('settings_auto_mark_read')
+    return saved !== null ? saved === 'true' : true
+  })
+  const [timezone, setTimezone] = useState(() => {
+    const saved = localStorage.getItem('settings_timezone')
+    return saved || Intl.DateTimeFormat().resolvedOptions().timeZone
+  })
+  const [showEmailInProfile, setShowEmailInProfile] = useState(() => {
+    const saved = localStorage.getItem('settings_show_email_in_profile')
+    return saved !== null ? saved === 'true' : false
+  })
+  const [profileVisibility, setProfileVisibility] = useState(() => {
+    const saved = localStorage.getItem('settings_profile_visibility')
+    return saved || 'public'
+  })
+  const [autoDeleteMessages, setAutoDeleteMessages] = useState(() => {
+    const saved = localStorage.getItem('settings_auto_delete_messages')
+    return saved !== null ? saved === 'true' : false
+  })
+  const [autoDeleteDays, setAutoDeleteDays] = useState(() => {
+    const saved = localStorage.getItem('settings_auto_delete_days')
+    return saved || '30'
+  })
+  const [quietHoursEnabled, setQuietHoursEnabled] = useState(() => {
+    const saved = localStorage.getItem('settings_quiet_hours_enabled')
+    return saved !== null ? saved === 'true' : false
+  })
+  const [quietHoursStart, setQuietHoursStart] = useState(() => {
+    const saved = localStorage.getItem('settings_quiet_hours_start')
+    return saved || '10:00 PM'
+  })
+  const [quietHoursEnd, setQuietHoursEnd] = useState(() => {
+    const saved = localStorage.getItem('settings_quiet_hours_end')
+    return saved || '6:00 AM'
+  })
+  const [notificationFrequency, setNotificationFrequency] = useState(() => {
+    const saved = localStorage.getItem('settings_notification_frequency')
+    return saved || 'realtime'
+  })
+  const [messagesPerPage, setMessagesPerPage] = useState(() => {
+    const saved = localStorage.getItem('settings_messages_per_page')
+    return saved || '20'
+  })
+  const [showCharacterCount, setShowCharacterCount] = useState(() => {
+    const saved = localStorage.getItem('settings_show_character_count')
+    return saved !== null ? saved === 'true' : true
+  })
+  const [compactMode, setCompactMode] = useState(() => {
+    const saved = localStorage.getItem('settings_compact_mode')
+    return saved !== null ? saved === 'true' : false
+  })
   const [polls, setPolls] = useState<PollWithOptions[]>([])
   const [showCreatePoll, setShowCreatePoll] = useState(false)
   const [pollView, setPollView] = useState<'all' | 'active' | 'archived'>('all')
@@ -75,20 +146,8 @@ export default function Dashboard() {
   const [selectedFolderFilter, setSelectedFolderFilter] = useState<string | null>(null)
   const [hubView, setHubView] = useState<'links' | 'polls' | 'qa' | 'challenges' | 'raffles' | 'voting' | 'feedback' | 'highlights' | 'reactions' | 'goals' | 'events' | 'wall' | 'projects'>('links')
   
-  // Navigation preferences (stored in localStorage)
-  const [showMessagesTab, setShowMessagesTab] = useState(() => {
-    const saved = localStorage.getItem('nav_show_messages')
-    return saved !== null ? saved === 'true' : true
-  })
-  const [showSettingsBtn, setShowSettingsBtn] = useState(() => {
-    const saved = localStorage.getItem('nav_show_settings')
-    return saved !== null ? saved === 'true' : true
-  })
-  const [showLogoutBtn, setShowLogoutBtn] = useState(() => {
-    const saved = localStorage.getItem('nav_show_logout')
-    return saved !== null ? saved === 'true' : true
-  })
   const [deletingAccount, setDeletingAccount] = useState(false)
+  const [uploadingLogo, setUploadingLogo] = useState(false)
   
   // Community Engagement Features State
   const [qaSessions, setQaSessions] = useState<QASession[]>([])
@@ -1610,13 +1669,6 @@ export default function Dashboard() {
     }
   }
 
-  // Navigation preference handlers
-  const updateNavPreference = (key: string, value: boolean) => {
-    localStorage.setItem(`nav_${key}`, String(value))
-    if (key === 'show_messages') setShowMessagesTab(value)
-    if (key === 'show_settings') setShowSettingsBtn(value)
-    if (key === 'show_logout') setShowLogoutBtn(value)
-  }
 
   const markAsRead = async (id: string, isRead: boolean) => {
     const { error } = await supabase
@@ -4381,42 +4433,36 @@ export default function Dashboard() {
             )}
           </div>
           <div className="header-right">
-            {showMessagesTab && (
-              <button
-                onClick={() => {
-                  if (activeTab === 'messages') {
-                    setActiveTab('overview')
-                  } else {
-                    setActiveTab('messages')
-                  }
-                }}
-                className={`header-tab-btn ${activeTab === 'messages' ? 'active' : ''}`}
-              >
-                <span className="header-tab-icon">💬</span>
-                <span className="header-tab-text">Messages</span>
-                {unreadCount > 0 && <span className="header-badge">{unreadCount}</span>}
-              </button>
-            )}
-            {showSettingsBtn && (
-              <button
-                onClick={() => {
-                  if (activeTab === 'settings') {
-                    setActiveTab('overview')
-                  } else {
-                    setActiveTab('settings')
-                  }
-                }}
-                className={`header-settings-btn ${activeTab === 'settings' ? 'active' : ''}`}
-                title="Settings"
-              >
-                <span className="header-settings-icon">⚙️</span>
-              </button>
-            )}
-            {showLogoutBtn && (
-              <button onClick={handleLogout} className="btn btn-secondary">
-                Logout
-              </button>
-            )}
+            <button
+              onClick={() => {
+                if (activeTab === 'messages') {
+                  setActiveTab('overview')
+                } else {
+                  setActiveTab('messages')
+                }
+              }}
+              className={`header-tab-btn ${activeTab === 'messages' ? 'active' : ''}`}
+            >
+              <span className="header-tab-icon">💬</span>
+              <span className="header-tab-text">Messages</span>
+              {unreadCount > 0 && <span className="header-badge">{unreadCount}</span>}
+            </button>
+            <button
+              onClick={() => {
+                if (activeTab === 'settings') {
+                  setActiveTab('overview')
+                } else {
+                  setActiveTab('settings')
+                }
+              }}
+              className={`header-settings-btn ${activeTab === 'settings' ? 'active' : ''}`}
+              title="Settings"
+            >
+              <span className="header-settings-icon">⚙️</span>
+            </button>
+            <button onClick={handleLogout} className="btn btn-secondary">
+              Logout
+            </button>
           </div>
         </header>
 
@@ -4430,17 +4476,73 @@ export default function Dashboard() {
                 <p className="settings-subtitle">Manage your account and preferences</p>
               </div>
 
-              <div className="settings-content">
-                {/* Profile Settings */}
-                <div className="settings-section">
-                  <h3>Profile</h3>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Display Name</label>
-                      <span className="settings-hint">Your public display name (shown on your vent page)</span>
-                    </div>
-                    <div className="settings-item-value">
-                      {editingDisplayName ? (
+              <div className="settings-layout">
+                {/* Settings Navigation Bar */}
+                <div className="settings-nav">
+                  <button
+                    className={`settings-nav-item ${activeSettingsSection === 'profile' ? 'active' : ''}`}
+                    onClick={() => setActiveSettingsSection('profile')}
+                  >
+                    <span className="settings-nav-icon">👤</span>
+                    <span className="settings-nav-label">Profile</span>
+                  </button>
+                  <button
+                    className={`settings-nav-item ${activeSettingsSection === 'vent-links' ? 'active' : ''}`}
+                    onClick={() => setActiveSettingsSection('vent-links')}
+                  >
+                    <span className="settings-nav-icon">🔗</span>
+                    <span className="settings-nav-label">Vent Links</span>
+                  </button>
+                  <button
+                    className={`settings-nav-item ${activeSettingsSection === 'account' ? 'active' : ''}`}
+                    onClick={() => setActiveSettingsSection('account')}
+                  >
+                    <span className="settings-nav-icon">⚙️</span>
+                    <span className="settings-nav-label">Account</span>
+                  </button>
+                  <button
+                    className={`settings-nav-item ${activeSettingsSection === 'security' ? 'active' : ''}`}
+                    onClick={() => setActiveSettingsSection('security')}
+                  >
+                    <span className="settings-nav-icon">🔒</span>
+                    <span className="settings-nav-label">Privacy & Security</span>
+                  </button>
+                  <button
+                    className={`settings-nav-item ${activeSettingsSection === 'notifications' ? 'active' : ''}`}
+                    onClick={() => setActiveSettingsSection('notifications')}
+                  >
+                    <span className="settings-nav-icon">🔔</span>
+                    <span className="settings-nav-label">Notifications</span>
+                  </button>
+                  <button
+                    className={`settings-nav-item ${activeSettingsSection === 'preferences' ? 'active' : ''}`}
+                    onClick={() => setActiveSettingsSection('preferences')}
+                  >
+                    <span className="settings-nav-icon">⚙️</span>
+                    <span className="settings-nav-label">Preferences</span>
+                  </button>
+                  <button
+                    className={`settings-nav-item ${activeSettingsSection === 'statistics' ? 'active' : ''}`}
+                    onClick={() => setActiveSettingsSection('statistics')}
+                  >
+                    <span className="settings-nav-icon">📊</span>
+                    <span className="settings-nav-label">Statistics</span>
+                  </button>
+                </div>
+
+                {/* Settings Content */}
+                <div className="settings-content">
+                  {/* Profile Settings */}
+                  {activeSettingsSection === 'profile' && (
+                    <div className="settings-section">
+                      <h3>Profile</h3>
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Display Name</label>
+                          <span className="settings-hint">Your public display name (shown on your vent page)</span>
+                        </div>
+                        <div className="settings-item-value">
+                          {editingDisplayName ? (
                         <div style={{ display: 'flex', gap: '8px', width: '100%' }}>
                           <input
                             type="text"
@@ -4483,8 +4585,8 @@ export default function Dashboard() {
                           </button>
                         </div>
                       )}
-                    </div>
-                  </div>
+                        </div>
+                      </div>
                   <div className="settings-item">
                     <div className="settings-item-label">
                       <label>Handle</label>
@@ -4587,11 +4689,12 @@ export default function Dashboard() {
                       )}
                     </div>
                   </div>
-                </div>
+                    </div>
+                  )}
 
-                {/* Vent Link Settings */}
-                {ventLinks.length > 0 && (
-                  <div className="settings-section">
+                  {/* Vent Links Settings */}
+                  {activeSettingsSection === 'vent-links' && ventLinks.length > 0 && (
+                    <div className="settings-section">
                     <h3>Vent Links</h3>
                     {ventLinks.length > 1 && (
                       <div className="settings-item" style={{ marginBottom: '16px' }}>
@@ -4644,518 +4747,1454 @@ export default function Dashboard() {
                         </div>
                       </div>
                     </div>
-                      </>
+
+                    {/* Page Customization */}
+                    <div className="vent-customization-section" style={{ marginTop: '32px', paddingTop: '32px', borderTop: '1px solid var(--border)' }}>
+                      <div className="customization-header">
+                        <div>
+                          <h3 style={{ marginBottom: '8px', display: 'flex', alignItems: 'center', gap: '8px', fontSize: '22px', fontWeight: '700' }}>
+                            <span style={{ fontSize: '28px' }}>🎨</span>
+                            Customize Your Vent Page
+                          </h3>
+                          <p className="settings-subtitle" style={{ margin: 0, fontSize: '14px', color: 'var(--text-secondary)' }}>
+                            Personalize your vent page with custom branding, colors, and links
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Live Preview with Iframe */}
+                      <div className="customization-preview-card">
+                        <div className="preview-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
+                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '1px' }}>Live Preview</span>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              onClick={() => {
+                                const iframe = document.getElementById('vent-preview-iframe') as HTMLIFrameElement
+                                if (iframe) {
+                                  iframe.src = iframe.src
+                                }
+                              }}
+                              className="btn btn-secondary btn-small"
+                              style={{ fontSize: '12px', padding: '4px 12px' }}
+                              title="Refresh preview"
+                            >
+                              🔄 Refresh
+                            </button>
+                            <a
+                              href={`/v/${primaryVentLink.slug}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-secondary btn-small"
+                              style={{ fontSize: '12px', padding: '4px 12px', textDecoration: 'none' }}
+                              title="Open in new tab"
+                            >
+                              👁️ Full View
+                            </a>
+                          </div>
+                        </div>
+                        <div className="preview-iframe-container">
+                          <iframe
+                            id="vent-preview-iframe"
+                            src={`${window.location.origin}/v/${primaryVentLink.slug}`}
+                            className="preview-iframe"
+                            title="Vent page preview"
+                            style={{
+                              width: '100%',
+                              height: '600px',
+                              border: '1px solid var(--border)',
+                              borderRadius: '12px',
+                              background: 'var(--bg-primary)'
+                            }}
+                            onLoad={() => {
+                              // Preview is loaded
+                            }}
+                          />
+                          <div className="preview-loading-overlay" style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            right: 0,
+                            bottom: 0,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            background: 'var(--bg-secondary)',
+                            borderRadius: '12px',
+                            pointerEvents: 'none',
+                            opacity: 0,
+                            transition: 'opacity 0.3s'
+                          }}>
+                            <div className="loading-spinner"></div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Live Preview with Iframe */}
+                      <div className="customization-preview-card">
+                        <div className="preview-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
+                          <div>
+                            <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>Live Preview</h4>
+                            <p style={{ margin: '4px 0 0 0', fontSize: '12px', color: 'var(--text-secondary)' }}>See how your vent page looks in real-time</p>
+                          </div>
+                          <div style={{ display: 'flex', gap: '8px' }}>
+                            <button
+                              onClick={() => {
+                                const iframe = document.getElementById('vent-preview-iframe') as HTMLIFrameElement
+                                if (iframe) {
+                                  iframe.src = iframe.src
+                                }
+                              }}
+                              className="btn btn-secondary btn-small"
+                              style={{ fontSize: '12px', padding: '6px 12px' }}
+                              title="Refresh preview"
+                            >
+                              🔄
+                            </button>
+                            <a
+                              href={`/v/${primaryVentLink.slug}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="btn btn-secondary btn-small"
+                              style={{ fontSize: '12px', padding: '6px 12px', textDecoration: 'none' }}
+                              title="Open in new tab"
+                            >
+                              👁️
+                            </a>
+                          </div>
+                        </div>
+                        <div className="preview-iframe-container">
+                          <iframe
+                            id="vent-preview-iframe"
+                            src={`${window.location.origin}/v/${primaryVentLink.slug}`}
+                            className="preview-iframe"
+                            title="Vent page preview"
+                            style={{
+                              width: '100%',
+                              height: '600px',
+                              border: '1px solid var(--border)',
+                              borderRadius: '12px',
+                              background: 'var(--bg-primary)'
+                            }}
+                          />
+                        </div>
+                      </div>
+
+                      {/* Branding Section */}
+                      <div className="customization-group-modern">
+                        <div className="group-header-modern">
+                          <div className="group-icon-wrapper">
+                            <span className="group-icon-modern">🖼️</span>
+                          </div>
+                          <div>
+                            <h4 className="group-title-modern">Branding</h4>
+                            <p className="group-subtitle">Customize your logo, title, and description</p>
+                          </div>
+                        </div>
+                        <div className="group-content-modern">
+                          {/* Logo Upload */}
+                          <div className="customization-field-modern">
+                            <label className="field-label-modern">
+                              Logo
+                            </label>
+                            <p className="field-description">Upload your logo or paste an image URL</p>
+                            
+                            <div className="logo-upload-section">
+                              {/* Logo Preview Area */}
+                              <div className="logo-preview-area">
+                                {primaryVentLink.logo_url ? (
+                                  <div className="logo-preview-large">
+                                    <img 
+                                      src={primaryVentLink.logo_url} 
+                                      alt="Logo preview" 
+                                      onError={(e) => {
+                                        (e.target as HTMLImageElement).style.display = 'none'
+                                        const parent = (e.target as HTMLElement).parentElement
+                                        if (parent) {
+                                          parent.innerHTML = '<div style="color: var(--danger); padding: 20px; text-align: center;">⚠️ Failed to load image</div>'
+                                        }
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => {
+                                        const updated = ventLinks.map(l => 
+                                          l.id === primaryVentLink.id 
+                                            ? { ...l, logo_url: null }
+                                            : l
+                                        )
+                                        setVentLinks(updated)
+                                      }}
+                                      className="logo-remove-btn"
+                                      title="Remove logo"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="logo-placeholder">
+                                    <span className="placeholder-icon">🖼️</span>
+                                    <span className="placeholder-text">No logo yet</span>
+                                  </div>
+                                )}
+                              </div>
+
+                              {/* Upload Options */}
+                              <div className="logo-upload-options">
+                                <label className="file-upload-button-modern">
+                                  <input
+                                    type="file"
+                                    accept="image/*"
+                                    style={{ display: 'none' }}
+                                    onChange={async (e) => {
+                                      const file = e.target.files?.[0]
+                                      if (!file) return
+
+                                      if (file.size > 5 * 1024 * 1024) {
+                                        alert('File size must be less than 5MB')
+                                        return
+                                      }
+
+                                      if (!file.type.startsWith('image/')) {
+                                        alert('Please select an image file')
+                                        return
+                                      }
+
+                                      setUploadingLogo(true)
+                                      try {
+                                        if (!profile) {
+                                          alert('You must be logged in to upload files')
+                                          return
+                                        }
+
+                                        const fileExt = file.name.split('.').pop()
+                                        const fileName = `${profile.id}/${Date.now()}.${fileExt}`
+                                        
+                                        const { data: uploadData, error: uploadError } = await supabase.storage
+                                          .from('logos')
+                                          .upload(fileName, file, {
+                                            cacheControl: '3600',
+                                            upsert: false
+                                          })
+
+                                        if (uploadError) {
+                                          console.error('Upload error:', uploadError)
+                                          if (uploadError.message?.includes('Bucket') || uploadError.message?.includes('not found')) {
+                                            alert('Storage bucket not configured. Please run the setup_storage_logos.sql script in Supabase, or use a URL instead.')
+                                          } else {
+                                            alert('Upload failed: ' + uploadError.message + '\n\nYou can still use a logo URL instead.')
+                                          }
+                                          setUploadingLogo(false)
+                                          return
+                                        }
+
+                                        const { data: urlData } = supabase.storage
+                                          .from('logos')
+                                          .getPublicUrl(fileName)
+
+                                        const logoUrl = urlData.publicUrl
+                                        const updated = ventLinks.map(l => 
+                                          l.id === primaryVentLink.id 
+                                            ? { ...l, logo_url: logoUrl }
+                                            : l
+                                        )
+                                        setVentLinks(updated)
+                                      } catch (err: any) {
+                                        console.error('Error uploading logo:', err)
+                                        alert('Error uploading logo: ' + (err.message || 'Unknown error'))
+                                      } finally {
+                                        setUploadingLogo(false)
+                                      }
+                                    }}
+                                    disabled={uploadingLogo}
+                                  />
+                                  <span className="upload-icon">📤</span>
+                                  <span>{uploadingLogo ? 'Uploading...' : 'Upload from Computer'}</span>
+                                </label>
+
+                                <div className="divider-text">
+                                  <span>or</span>
+                                </div>
+
+                                <input
+                                  type="url"
+                                  className="input-modern"
+                                  value={primaryVentLink.logo_url || ''}
+                                  onChange={(e) => {
+                                    const updated = ventLinks.map(l => 
+                                      l.id === primaryVentLink.id 
+                                        ? { ...l, logo_url: e.target.value }
+                                        : l
+                                    )
+                                    setVentLinks(updated)
+                                  }}
+                                  placeholder="Paste image URL here..."
+                                />
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Header Text */}
+                          <div className="customization-field-modern">
+                            <label className="field-label-modern">
+                              Header Text
+                            </label>
+                            <p className="field-description">Main title displayed at the top of your vent page</p>
+                            <input
+                              type="text"
+                              className="input-modern"
+                              value={primaryVentLink.header_text || ''}
+                              onChange={(e) => {
+                                const updated = ventLinks.map(l => 
+                                  l.id === primaryVentLink.id 
+                                    ? { ...l, header_text: e.target.value }
+                                    : l
+                                )
+                                setVentLinks(updated)
+                              }}
+                              placeholder="Talk to me anonymously..."
+                              maxLength={100}
+                            />
+                            <div className="char-count-small">{primaryVentLink.header_text?.length || 0} / 100</div>
+                          </div>
+
+                          {/* Description */}
+                          <div className="customization-field-modern">
+                            <label className="field-label-modern">
+                              Description
+                            </label>
+                            <p className="field-description">Brief description that appears below the header</p>
+                            <textarea
+                              className="textarea-modern"
+                              value={primaryVentLink.description || ''}
+                              onChange={(e) => {
+                                const updated = ventLinks.map(l => 
+                                  l.id === primaryVentLink.id 
+                                    ? { ...l, description: e.target.value }
+                                    : l
+                                )
+                                setVentLinks(updated)
+                              }}
+                              placeholder="Tell visitors what your vent page is about..."
+                              rows={4}
+                              maxLength={500}
+                            />
+                            <div className="char-count-small">{primaryVentLink.description?.length || 0} / 500</div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Colors Section */}
+                      <div className="customization-group-modern">
+                        <div className="group-header-modern">
+                          <div className="group-icon-wrapper">
+                            <span className="group-icon-modern">🎨</span>
+                          </div>
+                          <div>
+                            <h4 className="group-title-modern">Colors & Background</h4>
+                            <p className="group-subtitle">Choose your color scheme and background</p>
+                          </div>
+                        </div>
+                        <div className="group-content-modern">
+                          <div className="colors-grid">
+                            {/* Background Color */}
+                            <div className="color-field-modern">
+                              <label className="field-label-modern">Background Color</label>
+                              <p className="field-description">Main background color for your vent page</p>
+                              <div className="color-input-wrapper">
+                                <input
+                                  type="color"
+                                  value={primaryVentLink.background_color || '#0a0a0a'}
+                                  onChange={(e) => {
+                                    const updated = ventLinks.map(l => 
+                                      l.id === primaryVentLink.id 
+                                        ? { ...l, background_color: e.target.value }
+                                        : l
+                                    )
+                                    setVentLinks(updated)
+                                  }}
+                                  className="color-picker-modern"
+                                />
+                                <input
+                                  type="text"
+                                  className="input-modern"
+                                  value={primaryVentLink.background_color || ''}
+                                  onChange={(e) => {
+                                    const updated = ventLinks.map(l => 
+                                      l.id === primaryVentLink.id 
+                                        ? { ...l, background_color: e.target.value }
+                                        : l
+                                    )
+                                    setVentLinks(updated)
+                                  }}
+                                  placeholder="#0a0a0a"
+                                />
+                              </div>
+                              <div className="color-presets-modern">
+                                <span className="presets-label">Quick picks:</span>
+                                {['#0a0a0a', '#1a1a1a', '#2d1b4e', '#1e3a5f', '#1a2e1a'].map((color) => (
+                                  <button
+                                    key={color}
+                                    type="button"
+                                    className={`color-preset-modern ${primaryVentLink.background_color === color ? 'active' : ''}`}
+                                    style={{ background: color }}
+                                    onClick={() => {
+                                      const updated = ventLinks.map(l => 
+                                        l.id === primaryVentLink.id 
+                                          ? { ...l, background_color: color }
+                                          : l
+                                      )
+                                      setVentLinks(updated)
+                                    }}
+                                    title={color}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+
+                            {/* Accent Color */}
+                            <div className="color-field-modern">
+                              <label className="field-label-modern">Accent Color</label>
+                              <p className="field-description">Color for buttons and highlights</p>
+                              <div className="color-input-wrapper">
+                                <input
+                                  type="color"
+                                  value={primaryVentLink.accent_color || '#8b5cf6'}
+                                  onChange={(e) => {
+                                    const updated = ventLinks.map(l => 
+                                      l.id === primaryVentLink.id 
+                                        ? { ...l, accent_color: e.target.value }
+                                        : l
+                                    )
+                                    setVentLinks(updated)
+                                  }}
+                                  className="color-picker-modern"
+                                />
+                                <input
+                                  type="text"
+                                  className="input-modern"
+                                  value={primaryVentLink.accent_color || ''}
+                                  onChange={(e) => {
+                                    const updated = ventLinks.map(l => 
+                                      l.id === primaryVentLink.id 
+                                        ? { ...l, accent_color: e.target.value }
+                                        : l
+                                    )
+                                    setVentLinks(updated)
+                                  }}
+                                  placeholder="#8b5cf6"
+                                />
+                              </div>
+                              <div className="color-presets-modern">
+                                <span className="presets-label">Quick picks:</span>
+                                {['#8b5cf6', '#3b82f6', '#10b981', '#f59e0b', '#ef4444'].map((color) => (
+                                  <button
+                                    key={color}
+                                    type="button"
+                                    className={`color-preset-modern ${primaryVentLink.accent_color === color ? 'active' : ''}`}
+                                    style={{ background: color }}
+                                    onClick={() => {
+                                      const updated = ventLinks.map(l => 
+                                        l.id === primaryVentLink.id 
+                                          ? { ...l, accent_color: color }
+                                          : l
+                                      )
+                                      setVentLinks(updated)
+                                    }}
+                                    title={color}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Background Image */}
+                          <div className="customization-field-modern">
+                            <label className="field-label-modern">
+                              Background Image
+                            </label>
+                            <p className="field-description">Optional: Add a background image (overlays on background color)</p>
+                            <input
+                              type="url"
+                              className="input-modern"
+                              value={primaryVentLink.background_image_url || ''}
+                              onChange={(e) => {
+                                const updated = ventLinks.map(l => 
+                                  l.id === primaryVentLink.id 
+                                    ? { ...l, background_image_url: e.target.value }
+                                    : l
+                                )
+                                setVentLinks(updated)
+                              }}
+                              placeholder="https://example.com/background.jpg"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Custom Links Section */}
+                      <div className="customization-group-modern">
+                        <div className="group-header-modern">
+                          <div className="group-icon-wrapper">
+                            <span className="group-icon-modern">🔗</span>
+                          </div>
+                          <div>
+                            <h4 className="group-title-modern">Custom Links</h4>
+                            <p className="group-subtitle">Add links to your social media, website, or other pages</p>
+                          </div>
+                        </div>
+                        <div className="group-content-modern">
+                          <p className="field-description" style={{ marginBottom: '20px', padding: '12px', background: 'var(--bg-secondary)', borderRadius: '8px', fontSize: '13px' }}>
+                            💡 These links will appear as clickable buttons on your vent page, below your header
+                          </p>
+                          <div className="custom-links-list">
+                            {(primaryVentLink.custom_links || []).map((link, index) => (
+                              <div key={index} className="custom-link-item">
+                                <div className="link-icon-input">
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={link.icon || ''}
+                                    onChange={(e) => {
+                                      const updatedLinks = [...(primaryVentLink.custom_links || [])]
+                                      updatedLinks[index] = { ...link, icon: e.target.value }
+                                      const updated = ventLinks.map(l => 
+                                        l.id === primaryVentLink.id 
+                                          ? { ...l, custom_links: updatedLinks }
+                                          : l
+                                      )
+                                      setVentLinks(updated)
+                                    }}
+                                    placeholder="🔗"
+                                    maxLength={2}
+                                    style={{ textAlign: 'center', fontSize: '18px' }}
+                                  />
+                                  <span className="link-input-hint">Icon</span>
+                                </div>
+                                <div className="link-label-input">
+                                  <input
+                                    type="text"
+                                    className="input"
+                                    value={link.label}
+                                    onChange={(e) => {
+                                      const updatedLinks = [...(primaryVentLink.custom_links || [])]
+                                      updatedLinks[index] = { ...link, label: e.target.value }
+                                      const updated = ventLinks.map(l => 
+                                        l.id === primaryVentLink.id 
+                                          ? { ...l, custom_links: updatedLinks }
+                                          : l
+                                      )
+                                      setVentLinks(updated)
+                                    }}
+                                    placeholder="Link Label (e.g., Twitter)"
+                                  />
+                                  <span className="link-input-hint">Label</span>
+                                </div>
+                                <div className="link-url-input">
+                                  <input
+                                    type="url"
+                                    className="input"
+                                    value={link.url}
+                                    onChange={(e) => {
+                                      const updatedLinks = [...(primaryVentLink.custom_links || [])]
+                                      updatedLinks[index] = { ...link, url: e.target.value }
+                                      const updated = ventLinks.map(l => 
+                                        l.id === primaryVentLink.id 
+                                          ? { ...l, custom_links: updatedLinks }
+                                          : l
+                                      )
+                                      setVentLinks(updated)
+                                    }}
+                                    placeholder="https://..."
+                                  />
+                                  <span className="link-input-hint">URL</span>
+                                </div>
+                                <button
+                                  onClick={() => {
+                                    const updatedLinks = (primaryVentLink.custom_links || []).filter((_, i) => i !== index)
+                                    const updated = ventLinks.map(l => 
+                                      l.id === primaryVentLink.id 
+                                        ? { ...l, custom_links: updatedLinks }
+                                        : l
+                                    )
+                                    setVentLinks(updated)
+                                  }}
+                                  className="link-delete-btn"
+                                  title="Remove link"
+                                >
+                                  ✕
+                                </button>
+                              </div>
+                            ))}
+                            <button
+                              onClick={() => {
+                                const updatedLinks = [...(primaryVentLink.custom_links || []), { label: '', url: '', icon: '🔗' }]
+                                const updated = ventLinks.map(l => 
+                                  l.id === primaryVentLink.id 
+                                    ? { ...l, custom_links: updatedLinks }
+                                    : l
+                                )
+                                setVentLinks(updated)
+                              }}
+                              className="btn btn-secondary"
+                              style={{ width: '100%', marginTop: '8px' }}
+                            >
+                              ➕ Add New Link
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Save Button */}
+                      <div className="customization-save-section">
+                        <button
+                          onClick={async (e) => {
+                            try {
+                              const { error } = await supabase
+                                .from('vent_links')
+                                .update({
+                                  logo_url: primaryVentLink.logo_url || null,
+                                  header_text: primaryVentLink.header_text || null,
+                                  description: primaryVentLink.description || null,
+                                  background_color: primaryVentLink.background_color || null,
+                                  background_image_url: primaryVentLink.background_image_url || null,
+                                  accent_color: primaryVentLink.accent_color || null,
+                                  custom_links: primaryVentLink.custom_links || null,
+                                })
+                                .eq('id', primaryVentLink.id)
+
+                              if (error) throw error
+                              
+                              // Show success feedback
+                              const btn = e.target as HTMLButtonElement
+                              const originalText = btn.innerHTML
+                              btn.innerHTML = '✅ Saved!'
+                              btn.style.background = 'var(--success)'
+                              
+                              // Refresh the preview iframe after a short delay
+                              setTimeout(() => {
+                                const iframe = document.getElementById('vent-preview-iframe') as HTMLIFrameElement
+                                if (iframe) {
+                                  iframe.src = iframe.src
+                                }
+                              }, 500)
+                              
+                              setTimeout(() => {
+                                btn.innerHTML = originalText
+                                btn.style.background = ''
+                              }, 2000)
+                            } catch (err: any) {
+                              alert('Error saving customization: ' + (err.message || 'Unknown error'))
+                            }
+                          }}
+                          className="btn btn-primary"
+                          style={{ width: '100%', fontSize: '16px', padding: '14px', fontWeight: '600' }}
+                        >
+                          💾 Save Customization
+                        </button>
+                      </div>
+                    </div>
+                    </>
                     )}
-                  </div>
-                )}
-
-                {/* Vent Page Customization */}
-                {primaryVentLink && (
-                  <div className="settings-section">
-                    <h3>🎨 Customize Your Vent Page</h3>
-                    <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '20px' }}>
-                      Make your vent page unique with custom branding, colors, and links
-                    </p>
-
-                    {/* Logo Upload */}
-                    <div className="settings-item">
-                      <div className="settings-item-label">
-                        <label>Logo URL</label>
-                        <span className="settings-hint">URL to your logo image (will be displayed on your vent page)</span>
-                      </div>
-                      <div className="settings-item-value">
-                        <input
-                          type="url"
-                          className="input"
-                          value={primaryVentLink.logo_url || ''}
-                          onChange={(e) => {
-                            const updated = ventLinks.map(l => 
-                              l.id === primaryVentLink.id 
-                                ? { ...l, logo_url: e.target.value }
-                                : l
-                            )
-                            setVentLinks(updated)
-                          }}
-                          placeholder="https://example.com/logo.png"
-                        />
-                      </div>
                     </div>
+                  )}
 
-                    {/* Header Text */}
-                    <div className="settings-item">
-                      <div className="settings-item-label">
-                        <label>Header Text</label>
-                        <span className="settings-hint">Custom text displayed at the top of your vent page</span>
-                      </div>
-                      <div className="settings-item-value">
-                        <input
-                          type="text"
-                          className="input"
-                          value={primaryVentLink.header_text || ''}
-                          onChange={(e) => {
-                            const updated = ventLinks.map(l => 
-                              l.id === primaryVentLink.id 
-                                ? { ...l, header_text: e.target.value }
-                                : l
-                            )
-                            setVentLinks(updated)
-                          }}
-                          placeholder="Talk to me anonymously..."
-                          maxLength={100}
-                        />
-                      </div>
-                    </div>
+                  {/* Account Settings */}
+                  {activeSettingsSection === 'account' && (
+                    <div className="settings-section">
+                      <h3>⚙️ Account Settings</h3>
+                      <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '24px' }}>
+                        Manage your account credentials and preferences
+                      </p>
 
-                    {/* Description */}
-                    <div className="settings-item">
-                      <div className="settings-item-label">
-                        <label>Description</label>
-                        <span className="settings-hint">Brief description about yourself or your page</span>
-                      </div>
-                      <div className="settings-item-value">
-                        <textarea
-                          className="textarea"
-                          value={primaryVentLink.description || ''}
-                          onChange={(e) => {
-                            const updated = ventLinks.map(l => 
-                              l.id === primaryVentLink.id 
-                                ? { ...l, description: e.target.value }
-                                : l
-                            )
-                            setVentLinks(updated)
-                          }}
-                          placeholder="Tell visitors what your vent page is about..."
-                          rows={3}
-                          maxLength={500}
-                        />
-                      </div>
-                    </div>
-
-                    {/* Background Color */}
-                    <div className="settings-item">
-                      <div className="settings-item-label">
-                        <label>Background Color</label>
-                        <span className="settings-hint">Choose a background color for your vent page</span>
-                      </div>
-                      <div className="settings-item-value">
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <input
-                            type="color"
-                            value={primaryVentLink.background_color || '#0a0a0a'}
-                            onChange={(e) => {
-                              const updated = ventLinks.map(l => 
-                                l.id === primaryVentLink.id 
-                                  ? { ...l, background_color: e.target.value }
-                                  : l
-                              )
-                              setVentLinks(updated)
-                            }}
-                            style={{ width: '60px', height: '40px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '4px' }}
-                          />
-                          <input
-                            type="text"
-                            className="input"
-                            value={primaryVentLink.background_color || ''}
-                            onChange={(e) => {
-                              const updated = ventLinks.map(l => 
-                                l.id === primaryVentLink.id 
-                                  ? { ...l, background_color: e.target.value }
-                                  : l
-                              )
-                              setVentLinks(updated)
-                            }}
-                            placeholder="#0a0a0a"
-                            style={{ flex: 1 }}
-                          />
+                      {/* Account Information */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">ℹ️</span>
+                          <span className="group-title">Account Information</span>
+                        </div>
+                        <div className="group-content">
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Account ID</label>
+                              <span className="settings-hint">Your unique account identifier</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <code style={{ 
+                                padding: '6px 12px', 
+                                background: 'var(--bg-secondary)', 
+                                borderRadius: '4px',
+                                fontSize: '12px',
+                                color: 'var(--text-secondary)',
+                                fontFamily: 'monospace'
+                              }}>
+                                {profile?.id || 'N/A'}
+                              </code>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Member Since</label>
+                              <span className="settings-hint">When you joined GhostInbox</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <span>{profile?.created_at ? new Date(profile.created_at).toLocaleDateString('en-US', { 
+                                year: 'numeric', 
+                                month: 'long', 
+                                day: 'numeric' 
+                              }) : 'N/A'}</span>
+                            </div>
+                          </div>
                         </div>
                       </div>
-                    </div>
 
-                    {/* Background Image */}
-                    <div className="settings-item">
-                      <div className="settings-item-label">
-                        <label>Background Image URL</label>
-                        <span className="settings-hint">Optional background image (will overlay on background color)</span>
-                      </div>
-                      <div className="settings-item-value">
-                        <input
-                          type="url"
-                          className="input"
-                          value={primaryVentLink.background_image_url || ''}
-                          onChange={(e) => {
-                            const updated = ventLinks.map(l => 
-                              l.id === primaryVentLink.id 
-                                ? { ...l, background_image_url: e.target.value }
-                                : l
-                            )
-                            setVentLinks(updated)
-                          }}
-                          placeholder="https://example.com/background.jpg"
-                        />
-                      </div>
-                    </div>
-
-                    {/* Accent Color */}
-                    <div className="settings-item">
-                      <div className="settings-item-label">
-                        <label>Accent Color</label>
-                        <span className="settings-hint">Color for buttons and highlights</span>
-                      </div>
-                      <div className="settings-item-value">
-                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                          <input
-                            type="color"
-                            value={primaryVentLink.accent_color || '#8b5cf6'}
-                            onChange={(e) => {
-                              const updated = ventLinks.map(l => 
-                                l.id === primaryVentLink.id 
-                                  ? { ...l, accent_color: e.target.value }
-                                  : l
-                              )
-                              setVentLinks(updated)
-                            }}
-                            style={{ width: '60px', height: '40px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '4px' }}
-                          />
-                          <input
-                            type="text"
-                            className="input"
-                            value={primaryVentLink.accent_color || ''}
-                            onChange={(e) => {
-                              const updated = ventLinks.map(l => 
-                                l.id === primaryVentLink.id 
-                                  ? { ...l, accent_color: e.target.value }
-                                  : l
-                              )
-                              setVentLinks(updated)
-                            }}
-                            placeholder="#8b5cf6"
-                            style={{ flex: 1 }}
-                          />
+                      {/* Security */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">🔐</span>
+                          <span className="group-title">Security</span>
                         </div>
-                      </div>
-                    </div>
-
-                    {/* Custom Links */}
-                    <div className="settings-item">
-                      <div className="settings-item-label">
-                        <label>Custom Links</label>
-                        <span className="settings-hint">Add links to your social media, website, or other pages</span>
-                      </div>
-                      <div className="settings-item-value" style={{ width: '100%' }}>
-                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
-                          {(primaryVentLink.custom_links || []).map((link, index) => (
-                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                              <input
-                                type="text"
-                                className="input"
-                                value={link.icon || ''}
-                                onChange={(e) => {
-                                  const updatedLinks = [...(primaryVentLink.custom_links || [])]
-                                  updatedLinks[index] = { ...link, icon: e.target.value }
-                                  const updated = ventLinks.map(l => 
-                                    l.id === primaryVentLink.id 
-                                      ? { ...l, custom_links: updatedLinks }
-                                      : l
-                                  )
-                                  setVentLinks(updated)
-                                }}
-                                placeholder="🔗"
-                                style={{ width: '60px' }}
-                              />
-                              <input
-                                type="text"
-                                className="input"
-                                value={link.label}
-                                onChange={(e) => {
-                                  const updatedLinks = [...(primaryVentLink.custom_links || [])]
-                                  updatedLinks[index] = { ...link, label: e.target.value }
-                                  const updated = ventLinks.map(l => 
-                                    l.id === primaryVentLink.id 
-                                      ? { ...l, custom_links: updatedLinks }
-                                      : l
-                                  )
-                                  setVentLinks(updated)
-                                }}
-                                placeholder="Link Label"
-                                style={{ flex: 1 }}
-                              />
-                              <input
-                                type="url"
-                                className="input"
-                                value={link.url}
-                                onChange={(e) => {
-                                  const updatedLinks = [...(primaryVentLink.custom_links || [])]
-                                  updatedLinks[index] = { ...link, url: e.target.value }
-                                  const updated = ventLinks.map(l => 
-                                    l.id === primaryVentLink.id 
-                                      ? { ...l, custom_links: updatedLinks }
-                                      : l
-                                  )
-                                  setVentLinks(updated)
-                                }}
-                                placeholder="https://..."
-                                style={{ flex: 2 }}
-                              />
+                        <div className="group-content">
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Change Password</label>
+                              <span className="settings-hint">We'll send you an email to reset your password</span>
+                            </div>
+                            <div className="settings-item-value">
                               <button
-                                onClick={() => {
-                                  const updatedLinks = (primaryVentLink.custom_links || []).filter((_, i) => i !== index)
-                                  const updated = ventLinks.map(l => 
-                                    l.id === primaryVentLink.id 
-                                      ? { ...l, custom_links: updatedLinks }
-                                      : l
+                                className="btn btn-secondary"
+                                onClick={async () => {
+                                  const { data: { user } } = await supabase.auth.getUser()
+                                  if (!user?.email) {
+                                    alert('Unable to get your email address')
+                                    return
+                                  }
+                                  
+                                  // Send password reset email
+                                  const { error } = await supabase.auth.resetPasswordForEmail(
+                                    user.email,
+                                    { redirectTo: `${window.location.origin}/reset-password` }
                                   )
-                                  setVentLinks(updated)
+                                  
+                                  if (error) {
+                                    alert('Error sending reset email: ' + error.message)
+                                  } else {
+                                    alert('Password reset email sent! Check your inbox.')
+                                  }
                                 }}
-                                className="btn btn-danger btn-small"
                               >
-                                ✕
+                                🔑 Send Reset Email
                               </button>
                             </div>
-                          ))}
-                          <button
-                            onClick={() => {
-                              const updatedLinks = [...(primaryVentLink.custom_links || []), { label: '', url: '', icon: '🔗' }]
-                              const updated = ventLinks.map(l => 
-                                l.id === primaryVentLink.id 
-                                  ? { ...l, custom_links: updatedLinks }
-                                  : l
-                              )
-                              setVentLinks(updated)
-                            }}
-                            className="btn btn-secondary"
-                            style={{ alignSelf: 'flex-start' }}
-                          >
-                            + Add Link
-                          </button>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Two-Factor Authentication</label>
+                              <span className="settings-hint">Add an extra layer of security to your account (Coming soon)</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <button className="btn btn-secondary" disabled>
+                                Enable 2FA (Soon)
+                              </button>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Active Sessions</label>
+                              <span className="settings-hint">View and manage your active login sessions</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <button className="btn btn-secondary" disabled>
+                                View Sessions (Soon)
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Account Actions */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">🔄</span>
+                          <span className="group-title">Account Actions</span>
+                        </div>
+                        <div className="group-content">
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Refresh Data</label>
+                              <span className="settings-hint">Reload all data from the server</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <button
+                                className="btn btn-secondary"
+                                onClick={async () => {
+                                  setLoading(true)
+                                  await fetchData()
+                                  alert('Data refreshed!')
+                                }}
+                              >
+                                🔄 Refresh
+                              </button>
+                            </div>
+                          </div>
                         </div>
                       </div>
                     </div>
+                  )}
 
-                    {/* Save Button */}
-                    <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border)' }}>
-                      <button
-                        onClick={async () => {
-                          try {
-                            const { error } = await supabase
-                              .from('vent_links')
-                              .update({
-                                logo_url: primaryVentLink.logo_url || null,
-                                header_text: primaryVentLink.header_text || null,
-                                description: primaryVentLink.description || null,
-                                background_color: primaryVentLink.background_color || null,
-                                background_image_url: primaryVentLink.background_image_url || null,
-                                accent_color: primaryVentLink.accent_color || null,
-                                custom_links: primaryVentLink.custom_links || null,
-                              })
-                              .eq('id', primaryVentLink.id)
+                  {/* Privacy & Security */}
+                  {activeSettingsSection === 'security' && (
+                    <div className="settings-section">
+                      <h3>🔒 Privacy & Security</h3>
+                      <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '24px' }}>
+                        Manage your privacy settings and data security
+                      </p>
 
-                            if (error) throw error
-                            alert('Vent page customization saved!')
-                          } catch (err: any) {
-                            alert('Error saving customization: ' + (err.message || 'Unknown error'))
-                          }
-                        }}
-                        className="btn"
-                        style={{ width: '100%' }}
-                      >
-                        💾 Save Customization
-                      </button>
-                    </div>
-                  </div>
-                )}
+                      {/* Privacy Settings */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">🔐</span>
+                          <span className="group-title">Privacy</span>
+                        </div>
+                        <div className="group-content">
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Show Email in Profile</label>
+                              <span className="settings-hint">Allow others to see your email address</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <label className="toggle-switch">
+                                <input
+                                  type="checkbox"
+                                  checked={showEmailInProfile}
+                                  onChange={(e) => {
+                                    setShowEmailInProfile(e.target.checked)
+                                    localStorage.setItem('settings_show_email_in_profile', String(e.target.checked))
+                                  }}
+                                />
+                                <span className="toggle-slider"></span>
+                              </label>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Profile Visibility</label>
+                              <span className="settings-hint">Who can view your profile information</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <select
+                                className="select"
+                                style={{ minWidth: '200px' }}
+                                value={profileVisibility}
+                                onChange={(e) => {
+                                  setProfileVisibility(e.target.value)
+                                  localStorage.setItem('settings_profile_visibility', e.target.value)
+                                }}
+                              >
+                                <option value="public">Public</option>
+                                <option value="private">Private</option>
+                                <option value="unlisted">Unlisted</option>
+                              </select>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
 
-                {/* Account Settings */}
-                <div className="settings-section">
-                  <h3>Account</h3>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Change Password</label>
-                      <span className="settings-hint">We'll send you an email to reset your password</span>
-                    </div>
-                    <div className="settings-item-value">
-                      <button
-                        className="btn btn-secondary"
-                        onClick={async () => {
-                          const { data: { user } } = await supabase.auth.getUser()
-                          if (!user?.email) {
-                            alert('Unable to get your email address')
-                            return
-                          }
-                          
-                          // Send password reset email
-                          const { error } = await supabase.auth.resetPasswordForEmail(
-                            user.email,
-                            { redirectTo: `${window.location.origin}/reset-password` }
-                          )
-                          
-                          if (error) {
-                            alert('Error sending reset email: ' + error.message)
-                          } else {
-                            alert('Password reset email sent! Check your inbox.')
-                          }
-                        }}
-                      >
-                        Send Reset Email
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                      {/* Data Management */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">💾</span>
+                          <span className="group-title">Data Management</span>
+                        </div>
+                        <div className="group-content">
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Data Export</label>
+                              <span className="settings-hint">Download a complete copy of your data in JSON format</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <button
+                                className="btn btn-secondary"
+                                onClick={async () => {
+                                  try {
+                                    // Export user data
+                                    const exportData = {
+                                      profile: profile,
+                                      ventLinks: ventLinks,
+                                      messages: messages.length,
+                                      polls: polls.length,
+                                      exportDate: new Date().toISOString()
+                                    }
+                                    const dataStr = JSON.stringify(exportData, null, 2)
+                                    const dataBlob = new Blob([dataStr], { type: 'application/json' })
+                                    const url = URL.createObjectURL(dataBlob)
+                                    const link = document.createElement('a')
+                                    link.href = url
+                                    link.download = `ghostinbox-export-${new Date().toISOString().split('T')[0]}.json`
+                                    link.click()
+                                    URL.revokeObjectURL(url)
+                                    alert('Data export downloaded!')
+                                  } catch (err: any) {
+                                    alert('Error exporting data: ' + (err.message || 'Unknown error'))
+                                  }
+                                }}
+                              >
+                                📥 Export Data
+                              </button>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Auto-Delete Old Messages</label>
+                              <span className="settings-hint">Automatically delete messages older than specified days</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <div style={{ display: 'flex', gap: '12px', alignItems: 'center' }}>
+                                <label className="toggle-switch">
+                                  <input
+                                    type="checkbox"
+                                    checked={autoDeleteMessages}
+                                    onChange={(e) => {
+                                      setAutoDeleteMessages(e.target.checked)
+                                      localStorage.setItem('settings_auto_delete_messages', String(e.target.checked))
+                                    }}
+                                  />
+                                  <span className="toggle-slider"></span>
+                                </label>
+                                <select
+                                  className="select"
+                                  style={{ width: '120px' }}
+                                  value={autoDeleteDays}
+                                  onChange={(e) => {
+                                    setAutoDeleteDays(e.target.value)
+                                    localStorage.setItem('settings_auto_delete_days', e.target.value)
+                                  }}
+                                  disabled={!autoDeleteMessages}
+                                >
+                                  <option value="30">30 days</option>
+                                  <option value="60">60 days</option>
+                                  <option value="90">90 days</option>
+                                  <option value="365">1 year</option>
+                                </select>
+                              </div>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Clear Cache</label>
+                              <span className="settings-hint">Clear all cached data and refresh</span>
+                            </div>
+                            <div className="settings-item-value">
+                              <button
+                                className="btn btn-secondary"
+                                onClick={() => {
+                                  if (confirm('Clear all cached data? This will refresh the page.')) {
+                                    localStorage.clear()
+                                    window.location.reload()
+                                  }
+                                }}
+                              >
+                                🗑️ Clear Cache
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
 
-                {/* Statistics */}
-                <div className="settings-section">
-                  <h3>Statistics</h3>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Total Messages</label>
+                      {/* Danger Zone */}
+                      <div style={{ marginTop: '32px', paddingTop: '32px', borderTop: '2px solid var(--danger)', background: 'rgba(239, 68, 68, 0.05)', borderRadius: '8px', padding: '24px' }}>
+                        <h3 style={{ color: 'var(--danger)', marginTop: 0 }}>⚠️ Danger Zone</h3>
+                        <div className="settings-item">
+                          <div className="settings-item-label">
+                            <label style={{ color: 'var(--danger)', fontWeight: '600' }}>Delete Account</label>
+                            <span className="settings-hint">Permanently delete your account and all associated data. This action cannot be undone.</span>
+                          </div>
+                          <div className="settings-item-value">
+                            <button
+                              onClick={handleDeleteAccount}
+                              disabled={deletingAccount}
+                              className="btn btn-danger"
+                              style={{ minWidth: '150px' }}
+                            >
+                              {deletingAccount ? 'Deleting...' : 'Delete Account'}
+                            </button>
+                          </div>
+                        </div>
+                      </div>
                     </div>
-                    <div className="settings-item-value">
-                      <span>{totalMessages}</span>
-                    </div>
-                  </div>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Unread Messages</label>
-                    </div>
-                    <div className="settings-item-value">
-                      <span>{unreadCount}</span>
-                    </div>
-                  </div>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Active Polls</label>
-                    </div>
-                    <div className="settings-item-value">
-                      <span>{activePolls.length}</span>
-                    </div>
-                  </div>
-                </div>
+                  )}
 
-                {/* Navigation Preferences */}
-                <div className="settings-section">
-                  <h3>Navigation Preferences</h3>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Show Messages Tab</label>
-                      <span className="settings-hint">Toggle visibility of the Messages button in the navigation bar</span>
-                    </div>
-                    <div className="settings-item-value">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={showMessagesTab}
-                          onChange={(e) => updateNavPreference('show_messages', e.target.checked)}
-                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                        />
-                        <span>{showMessagesTab ? 'Visible' : 'Hidden'}</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Show Settings Button</label>
-                      <span className="settings-hint">Toggle visibility of the Settings button in the navigation bar</span>
-                    </div>
-                    <div className="settings-item-value">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={showSettingsBtn}
-                          onChange={(e) => updateNavPreference('show_settings', e.target.checked)}
-                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                        />
-                        <span>{showSettingsBtn ? 'Visible' : 'Hidden'}</span>
-                      </label>
-                    </div>
-                  </div>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Show Logout Button</label>
-                      <span className="settings-hint">Toggle visibility of the Logout button in the navigation bar</span>
-                    </div>
-                    <div className="settings-item-value">
-                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
-                        <input
-                          type="checkbox"
-                          checked={showLogoutBtn}
-                          onChange={(e) => updateNavPreference('show_logout', e.target.checked)}
-                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
-                        />
-                        <span>{showLogoutBtn ? 'Visible' : 'Hidden'}</span>
-                      </label>
-                    </div>
-                  </div>
-                </div>
+                  {/* Notifications Settings */}
+                  {activeSettingsSection === 'notifications' && (
+                    <div className="settings-section">
+                      <h3>🔔 Notification Settings</h3>
+                      <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '24px' }}>
+                        Control how and when you receive notifications
+                      </p>
 
-                {/* Privacy & Security */}
-                <div className="settings-section">
-                  <h3>Privacy & Security</h3>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label>Data Export</label>
-                      <span className="settings-hint">Download a copy of your data</span>
-                    </div>
-                    <div className="settings-item-value">
-                      <button
-                        className="btn btn-secondary"
-                        onClick={async () => {
-                          try {
-                            // Export user data
-                            const exportData = {
-                              profile: profile,
-                              ventLinks: ventLinks,
-                              messages: messages.length,
-                              polls: polls.length,
-                              exportDate: new Date().toISOString()
-                            }
-                            const dataStr = JSON.stringify(exportData, null, 2)
-                            const dataBlob = new Blob([dataStr], { type: 'application/json' })
-                            const url = URL.createObjectURL(dataBlob)
-                            const link = document.createElement('a')
-                            link.href = url
-                            link.download = `ghostinbox-export-${new Date().toISOString().split('T')[0]}.json`
-                            link.click()
-                            URL.revokeObjectURL(url)
-                            alert('Data export downloaded!')
-                          } catch (err: any) {
-                            alert('Error exporting data: ' + (err.message || 'Unknown error'))
-                          }
-                        }}
-                      >
-                        Export Data
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                      {/* Email Notifications */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Email Notifications</label>
+                          <span className="settings-hint">Receive email alerts for new messages and important updates</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={emailNotifications}
+                              onChange={(e) => {
+                                setEmailNotifications(e.target.checked)
+                                localStorage.setItem('settings_email_notifications', String(e.target.checked))
+                              }}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                        </div>
+                      </div>
 
-                {/* Danger Zone */}
-                <div className="settings-section" style={{ border: '2px solid var(--danger)', background: 'rgba(239, 68, 68, 0.05)' }}>
-                  <h3 style={{ color: 'var(--danger)' }}>⚠️ Danger Zone</h3>
-                  <div className="settings-item">
-                    <div className="settings-item-label">
-                      <label style={{ color: 'var(--danger)', fontWeight: '600' }}>Delete Account</label>
-                      <span className="settings-hint">Permanently delete your account and all associated data. This action cannot be undone.</span>
-                    </div>
-                    <div className="settings-item-value">
-                      <button
-                        onClick={handleDeleteAccount}
-                        disabled={deletingAccount}
-                        className="btn btn-danger"
-                        style={{ minWidth: '150px' }}
-                      >
-                        {deletingAccount ? 'Deleting...' : 'Delete Account'}
-                      </button>
-                    </div>
-                  </div>
-                </div>
+                      {/* Browser Notifications */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Browser Notifications</label>
+                          <span className="settings-hint">Enable desktop notifications when new messages arrive (requires permission)</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={browserNotifications}
+                              onChange={async (e) => {
+                                if (e.target.checked) {
+                                  const permission = await Notification.requestPermission()
+                                  if (permission === 'granted') {
+                                    setBrowserNotifications(true)
+                                    localStorage.setItem('settings_browser_notifications', 'true')
+                                  } else {
+                                    alert('Browser notifications are blocked. Please enable them in your browser settings.')
+                                    e.target.checked = false
+                                  }
+                                } else {
+                                  setBrowserNotifications(false)
+                                  localStorage.setItem('settings_browser_notifications', 'false')
+                                }
+                              }}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                        </div>
+                      </div>
 
-                {/* Actions */}
-                <div className="settings-section">
-                  <h3>Actions</h3>
-                  <div className="settings-actions">
-                    <button onClick={handleLogout} className="btn btn-secondary">
-                      Logout
-                    </button>
-                  </div>
+                      {/* Daily Digest */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Daily Digest Email</label>
+                          <span className="settings-hint">Receive a daily summary email with unread message counts and activity</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={dailyDigest}
+                              onChange={(e) => {
+                                setDailyDigest(e.target.checked)
+                                localStorage.setItem('settings_daily_digest', String(e.target.checked))
+                              }}
+                              disabled={!emailNotifications}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Notification Preferences */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Notification Frequency</label>
+                          <span className="settings-hint">How often you want to be notified about new messages</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <select
+                            className="select"
+                            value={notificationFrequency}
+                            onChange={(e) => {
+                              setNotificationFrequency(e.target.value)
+                              localStorage.setItem('settings_notification_frequency', e.target.value)
+                            }}
+                            style={{ minWidth: '200px' }}
+                          >
+                            <option value="realtime">Real-time (immediate)</option>
+                            <option value="hourly">Hourly digest</option>
+                            <option value="daily">Daily digest</option>
+                            <option value="weekly">Weekly summary</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Quiet Hours */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Quiet Hours</label>
+                          <span className="settings-hint">Disable notifications during specific hours</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                            <label className="toggle-switch">
+                              <input
+                                type="checkbox"
+                                checked={quietHoursEnabled}
+                                onChange={(e) => {
+                                  setQuietHoursEnabled(e.target.checked)
+                                  localStorage.setItem('settings_quiet_hours_enabled', String(e.target.checked))
+                                }}
+                              />
+                              <span className="toggle-slider"></span>
+                            </label>
+                            <select
+                              className="select"
+                              style={{ width: '100px' }}
+                              value={quietHoursStart}
+                              onChange={(e) => {
+                                setQuietHoursStart(e.target.value)
+                                localStorage.setItem('settings_quiet_hours_start', e.target.value)
+                              }}
+                              disabled={!quietHoursEnabled}
+                            >
+                              <option value="10:00 PM">10:00 PM</option>
+                              <option value="11:00 PM">11:00 PM</option>
+                              <option value="12:00 AM">12:00 AM</option>
+                            </select>
+                            <span>to</span>
+                            <select
+                              className="select"
+                              style={{ width: '100px' }}
+                              value={quietHoursEnd}
+                              onChange={(e) => {
+                                setQuietHoursEnd(e.target.value)
+                                localStorage.setItem('settings_quiet_hours_end', e.target.value)
+                              }}
+                              disabled={!quietHoursEnabled}
+                            >
+                              <option value="6:00 AM">6:00 AM</option>
+                              <option value="7:00 AM">7:00 AM</option>
+                              <option value="8:00 AM">8:00 AM</option>
+                            </select>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Preferences Settings */}
+                  {activeSettingsSection === 'preferences' && (
+                    <div className="settings-section">
+                      <h3>⚙️ App Preferences</h3>
+                      <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '24px' }}>
+                        Customize your app experience and default behaviors
+                      </p>
+
+                      {/* Default Message View */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Default Message View</label>
+                          <span className="settings-hint">Choose how messages are displayed by default</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <select
+                            className="select"
+                            value={defaultMessageView}
+                            onChange={(e) => {
+                              setDefaultMessageView(e.target.value)
+                              localStorage.setItem('settings_default_message_view', e.target.value)
+                            }}
+                            style={{ minWidth: '150px' }}
+                          >
+                            <option value="card">Card View</option>
+                            <option value="list">List View</option>
+                            <option value="compact">Compact View</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Auto Mark as Read */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Auto Mark as Read</label>
+                          <span className="settings-hint">Automatically mark messages as read when opened</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={autoMarkRead}
+                              onChange={(e) => {
+                                setAutoMarkRead(e.target.checked)
+                                localStorage.setItem('settings_auto_mark_read', String(e.target.checked))
+                              }}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Default Sort Order */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Default Sort Order</label>
+                          <span className="settings-hint">How messages should be sorted by default</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <select
+                            className="select"
+                            defaultValue={messageSort}
+                            onChange={(e) => {
+                              setMessageSort(e.target.value as 'newest' | 'oldest')
+                              localStorage.setItem('settings_default_sort', e.target.value)
+                            }}
+                            style={{ minWidth: '150px' }}
+                          >
+                            <option value="newest">Newest First</option>
+                            <option value="oldest">Oldest First</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Default Filter */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Default Message Filter</label>
+                          <span className="settings-hint">Which messages to show by default</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <select
+                            className="select"
+                            defaultValue={messageFilter}
+                            onChange={(e) => {
+                              setMessageFilter(e.target.value as any)
+                              localStorage.setItem('settings_default_filter', e.target.value)
+                            }}
+                            style={{ minWidth: '150px' }}
+                          >
+                            <option value="all">All Messages</option>
+                            <option value="unread">Unread Only</option>
+                            <option value="read">Read Only</option>
+                            <option value="flagged">Flagged</option>
+                            <option value="starred">Starred</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Timezone */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Timezone</label>
+                          <span className="settings-hint">Your timezone for accurate timestamps</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <select
+                            className="select"
+                            value={timezone}
+                            onChange={(e) => {
+                              setTimezone(e.target.value)
+                              localStorage.setItem('settings_timezone', e.target.value)
+                            }}
+                            style={{ minWidth: '250px' }}
+                          >
+                            <option value="America/New_York">Eastern Time (ET)</option>
+                            <option value="America/Chicago">Central Time (CT)</option>
+                            <option value="America/Denver">Mountain Time (MT)</option>
+                            <option value="America/Los_Angeles">Pacific Time (PT)</option>
+                            <option value="Europe/London">London (GMT)</option>
+                            <option value="Europe/Paris">Paris (CET)</option>
+                            <option value="Asia/Tokyo">Tokyo (JST)</option>
+                            <option value="Asia/Shanghai">Shanghai (CST)</option>
+                            <option value="Australia/Sydney">Sydney (AEDT)</option>
+                            <option value={Intl.DateTimeFormat().resolvedOptions().timeZone}>
+                              Auto-detect ({Intl.DateTimeFormat().resolvedOptions().timeZone})
+                            </option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Messages per Page */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Messages Per Page</label>
+                          <span className="settings-hint">Number of messages to show per page</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <select
+                            className="select"
+                            value={messagesPerPage}
+                            onChange={(e) => {
+                              setMessagesPerPage(e.target.value)
+                              localStorage.setItem('settings_messages_per_page', e.target.value)
+                            }}
+                            style={{ minWidth: '100px' }}
+                          >
+                            <option value="10">10</option>
+                            <option value="20">20</option>
+                            <option value="50">50</option>
+                            <option value="100">100</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      {/* Show Character Count */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Show Character Count</label>
+                          <span className="settings-hint">Display character count in message inputs</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={showCharacterCount}
+                              onChange={(e) => {
+                                setShowCharacterCount(e.target.checked)
+                                localStorage.setItem('settings_show_character_count', String(e.target.checked))
+                              }}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                        </div>
+                      </div>
+
+                      {/* Compact Mode */}
+                      <div className="settings-item">
+                        <div className="settings-item-label">
+                          <label>Compact Mode</label>
+                          <span className="settings-hint">Use a more compact layout to show more content</span>
+                        </div>
+                        <div className="settings-item-value">
+                          <label className="toggle-switch">
+                            <input
+                              type="checkbox"
+                              checked={compactMode}
+                              onChange={(e) => {
+                                setCompactMode(e.target.checked)
+                                localStorage.setItem('settings_compact_mode', String(e.target.checked))
+                              }}
+                            />
+                            <span className="toggle-slider"></span>
+                          </label>
+                        </div>
+                      </div>
+                    </div>
+                  )}
+
+                  {/* Statistics */}
+                  {activeSettingsSection === 'statistics' && (
+                    <div className="settings-section">
+                      <h3>📊 Statistics & Analytics</h3>
+                      <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '24px' }}>
+                        Overview of your account activity and engagement
+                      </p>
+
+                      {/* Message Statistics */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">💬</span>
+                          <span className="group-title">Messages</span>
+                        </div>
+                        <div className="group-content">
+                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
+                            <div className="stat-card">
+                              <div className="stat-value">{totalMessages}</div>
+                              <div className="stat-label">Total Messages</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{unreadCount}</div>
+                              <div className="stat-label">Unread</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{readCount}</div>
+                              <div className="stat-label">Read</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{flaggedCount}</div>
+                              <div className="stat-label">Flagged</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{starredCount}</div>
+                              <div className="stat-label">Starred</div>
+                            </div>
+                            <div className="stat-card">
+                              <div className="stat-value">{archivedCount}</div>
+                              <div className="stat-label">Archived</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Activity Statistics */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">📈</span>
+                          <span className="group-title">Activity</span>
+                        </div>
+                        <div className="group-content">
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Messages Today</label>
+                            </div>
+                            <div className="settings-item-value">
+                              <span className="stat-number">{todayMessages}</span>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Messages This Week</label>
+                            </div>
+                            <div className="settings-item-value">
+                              <span className="stat-number">{thisWeekMessages}</span>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Needs Response</label>
+                            </div>
+                            <div className="settings-item-value">
+                              <span className="stat-number">{needsResponseCount}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Engagement Statistics */}
+                      <div className="customization-group">
+                        <div className="group-header">
+                          <span className="group-icon">🎯</span>
+                          <span className="group-title">Engagement</span>
+                        </div>
+                        <div className="group-content">
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Active Polls</label>
+                            </div>
+                            <div className="settings-item-value">
+                              <span className="stat-number">{activePolls.length}</span>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Total Vent Links</label>
+                            </div>
+                            <div className="settings-item-value">
+                              <span className="stat-number">{ventLinks.length}</span>
+                            </div>
+                          </div>
+                          <div className="settings-item">
+                            <div className="settings-item-label">
+                              <label>Account Created</label>
+                            </div>
+                            <div className="settings-item-value">
+                              <span>{profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'N/A'}</span>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
             </div>

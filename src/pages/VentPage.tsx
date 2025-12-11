@@ -1017,7 +1017,15 @@ export default function VentPage() {
   if (!ventLink) {
     return (
       <div className="vent-page">
-        <div className="error-message">link not found</div>
+        <div className="vent-container">
+          <div className="error-card">
+            <h2>404 - Page Not Found</h2>
+            <p>The vent page you're looking for doesn't exist or has been deactivated.</p>
+            <a href="/" className="btn btn-primary" style={{ marginTop: '20px', display: 'inline-block' }}>
+              Go to Homepage
+            </a>
+          </div>
+        </div>
       </div>
     )
   }

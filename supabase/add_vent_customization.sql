@@ -18,3 +18,4 @@ COMMENT ON COLUMN public.vent_links.accent_color IS 'Accent color for buttons an
 COMMENT ON COLUMN public.vent_links.custom_links IS 'Array of custom links to display on the vent page: [{"label": "string", "url": "string", "icon": "string"}]';
 COMMENT ON COLUMN public.vent_links.header_text IS 'Custom header text displayed at the top of the vent page';
 COMMENT ON COLUMN public.vent_links.description IS 'Custom description text for the vent page';
+
