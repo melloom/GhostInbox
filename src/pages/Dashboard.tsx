@@ -6420,7 +6420,7 @@ export default function Dashboard() {
                   if (messageFilter === 'archived') return msg.is_archived
                   if (messageFilter === 'needs-response') {
                     const hasResponse = messageResponses[msg.id]
-                    const isHighPriority = msg.ai_priority_score !== null && msg.ai_priority_score >= 70
+                    const isHighPriority = (msg.ai_priority_score ?? 0) >= 70
                     const hasNeedsResponseTag = messageTags[msg.id]?.includes('needs-response')
                     return !msg.is_archived && !hasResponse && (isHighPriority || hasNeedsResponseTag)
                   }
@@ -6430,8 +6430,8 @@ export default function Dashboard() {
                   const dateB = new Date(b.created_at).getTime()
                   if (messageSort === 'priority') {
                     // Sort by priority score (highest first), then by date
-                    const scoreA = msgA.ai_priority_score ?? 0
-                    const scoreB = msgB.ai_priority_score ?? 0
+                    const scoreA = a.ai_priority_score ?? 0
+                    const scoreB = b.ai_priority_score ?? 0
                     if (scoreB !== scoreA) return scoreB - scoreA
                     return dateB - dateA // If same priority, newest first
                   }
