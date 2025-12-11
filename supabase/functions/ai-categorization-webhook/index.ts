@@ -174,27 +174,81 @@ serve(async (req) => {
       console.error('Error updating message with categorization:', updateError)
     }
 
-    // Add tags to message
-    if (categorizationResult.tags && Array.isArray(categorizationResult.tags) && messageOwnerId) {
+    // Add intelligent tags to message
+    const tagsToAdd: string[] = []
+    
+    // Add AI-generated tags
+    if (categorizationResult.tags && Array.isArray(categorizationResult.tags)) {
       for (const tagName of categorizationResult.tags) {
         if (tagName && typeof tagName === 'string' && tagName.trim()) {
-          // Check if tag already exists
-          const { data: existingTag } = await supabaseClient
-            .from('message_tags')
-            .select('id')
-            .eq('message_id', message_id)
-            .eq('tag_name', tagName.trim())
-            .single()
+          tagsToAdd.push(tagName.trim().toLowerCase())
+        }
+      }
+    }
+    
+    // Add automatic tags based on category
+    if (categorizationResult.primary_category) {
+      const categoryTag = categorizationResult.primary_category.toLowerCase()
+      if (!tagsToAdd.includes(categoryTag)) {
+        tagsToAdd.push(categoryTag)
+      }
+    }
+    
+    // Add sentiment-based tags
+    if (categorizationResult.sentiment) {
+      const sentimentTag = `sentiment-${categorizationResult.sentiment.toLowerCase()}`
+      if (!tagsToAdd.includes(sentimentTag)) {
+        tagsToAdd.push(sentimentTag)
+      }
+    }
+    
+    // Add urgency-based tags
+    if (categorizationResult.urgency) {
+      const urgencyTag = `urgency-${categorizationResult.urgency.toLowerCase()}`
+      if (!tagsToAdd.includes(urgencyTag)) {
+        tagsToAdd.push(urgencyTag)
+      }
+      
+      // Add "urgent" tag for high urgency
+      if (categorizationResult.urgency === 'high' && !tagsToAdd.includes('urgent')) {
+        tagsToAdd.push('urgent')
+      }
+    }
+    
+    // Add "needs-response" tag for questions and high-urgency items
+    if (
+      (categorizationResult.primary_category === 'question' || 
+       categorizationResult.urgency === 'high') &&
+      !tagsToAdd.includes('needs-response')
+    ) {
+      tagsToAdd.push('needs-response')
+    }
+    
+    // Insert all tags (only if owner_id is available for RLS)
+    if (messageOwnerId && tagsToAdd.length > 0) {
+      for (const tagName of tagsToAdd) {
+        // Check if tag already exists
+        const { data: existingTag } = await supabaseClient
+          .from('message_tags')
+          .select('id')
+          .eq('message_id', message_id)
+          .eq('tag_name', tagName)
+          .single()
 
-          if (!existingTag) {
-            // Insert tag
-            await supabaseClient
-              .from('message_tags')
-              .insert({
-                message_id,
-                tag_name: tagName.trim(),
-              })
-          }
+        if (!existingTag) {
+          // Insert tag
+          await supabaseClient
+            .from('message_tags')
+            .insert({
+              message_id,
+              tag_name: tagName,
+            })
+            .catch((err) => {
+              // Ignore duplicate errors
+              if (!err.message?.includes('duplicate') && !err.message?.includes('unique')) {
+                console.error(`Error adding tag ${tagName}:`, err)
+              }
+            })
         }
       }
     }
