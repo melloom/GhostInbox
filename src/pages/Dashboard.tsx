@@ -4764,73 +4764,6 @@ export default function Dashboard() {
 
                       {/* Live Preview with Iframe */}
                       <div className="customization-preview-card">
-                        <div className="preview-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-                          <span style={{ fontSize: '12px', color: 'var(--text-secondary)', fontWeight: '600', textTransform: 'uppercase', letterSpacing: '1px' }}>Live Preview</span>
-                          <div style={{ display: 'flex', gap: '8px' }}>
-                            <button
-                              onClick={() => {
-                                const iframe = document.getElementById('vent-preview-iframe') as HTMLIFrameElement
-                                if (iframe) {
-                                  iframe.src = iframe.src
-                                }
-                              }}
-                              className="btn btn-secondary btn-small"
-                              style={{ fontSize: '12px', padding: '4px 12px' }}
-                              title="Refresh preview"
-                            >
-                              🔄 Refresh
-                            </button>
-                            <a
-                              href={`/v/${primaryVentLink.slug}`}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="btn btn-secondary btn-small"
-                              style={{ fontSize: '12px', padding: '4px 12px', textDecoration: 'none' }}
-                              title="Open in new tab"
-                            >
-                              👁️ Full View
-                            </a>
-                          </div>
-                        </div>
-                        <div className="preview-iframe-container">
-                          <iframe
-                            id="vent-preview-iframe"
-                            src={`${window.location.origin}/v/${primaryVentLink.slug}`}
-                            className="preview-iframe"
-                            title="Vent page preview"
-                            style={{
-                              width: '100%',
-                              height: '600px',
-                              border: '1px solid var(--border)',
-                              borderRadius: '12px',
-                              background: 'var(--bg-primary)'
-                            }}
-                            onLoad={() => {
-                              // Preview is loaded
-                            }}
-                          />
-                          <div className="preview-loading-overlay" style={{
-                            position: 'absolute',
-                            top: 0,
-                            left: 0,
-                            right: 0,
-                            bottom: 0,
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: 'var(--bg-secondary)',
-                            borderRadius: '12px',
-                            pointerEvents: 'none',
-                            opacity: 0,
-                            transition: 'opacity 0.3s'
-                          }}>
-                            <div className="loading-spinner"></div>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Live Preview with Iframe */}
-                      <div className="customization-preview-card">
                         <div className="preview-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
                           <div>
                             <h4 style={{ margin: 0, fontSize: '16px', fontWeight: '600', color: 'var(--text-primary)' }}>Live Preview</h4>
@@ -5944,7 +5877,7 @@ export default function Dashboard() {
                         <div className="settings-item-value">
                           <select
                             className="select"
-                            defaultValue={messageSort}
+                            value={messageSort}
                             onChange={(e) => {
                               setMessageSort(e.target.value as 'newest' | 'oldest')
                               localStorage.setItem('settings_default_sort', e.target.value)
@@ -5966,7 +5899,7 @@ export default function Dashboard() {
                         <div className="settings-item-value">
                           <select
                             className="select"
-                            defaultValue={messageFilter}
+                            value={messageFilter}
                             onChange={(e) => {
                               setMessageFilter(e.target.value as any)
                               localStorage.setItem('settings_default_filter', e.target.value)
@@ -6086,109 +6019,137 @@ export default function Dashboard() {
                   {activeSettingsSection === 'statistics' && (
                     <div className="settings-section">
                       <h3>📊 Statistics & Analytics</h3>
-                      <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '24px' }}>
+                      <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '32px' }}>
                         Overview of your account activity and engagement
                       </p>
 
                       {/* Message Statistics */}
-                      <div className="customization-group">
-                        <div className="group-header">
-                          <span className="group-icon">💬</span>
-                          <span className="group-title">Messages</span>
+                      <div className="statistics-section-modern">
+                        <div className="stats-section-header">
+                          <div className="stats-section-icon">💬</div>
+                          <div>
+                            <h4 className="stats-section-title">Messages</h4>
+                            <p className="stats-section-subtitle">Your message activity overview</p>
+                          </div>
                         </div>
-                        <div className="group-content">
-                          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '16px' }}>
-                            <div className="stat-card">
-                              <div className="stat-value">{totalMessages}</div>
-                              <div className="stat-label">Total Messages</div>
+                        <div className="stats-grid-enhanced">
+                          <div className="stat-card-enhanced primary">
+                            <div className="stat-card-icon">📨</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{totalMessages}</div>
+                              <div className="stat-label-enhanced">Total Messages</div>
                             </div>
-                            <div className="stat-card">
-                              <div className="stat-value">{unreadCount}</div>
-                              <div className="stat-label">Unread</div>
+                          </div>
+                          <div className="stat-card-enhanced accent">
+                            <div className="stat-card-icon">🔔</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{unreadCount}</div>
+                              <div className="stat-label-enhanced">Unread</div>
                             </div>
-                            <div className="stat-card">
-                              <div className="stat-value">{readCount}</div>
-                              <div className="stat-label">Read</div>
+                          </div>
+                          <div className="stat-card-enhanced success">
+                            <div className="stat-card-icon">✓</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{readCount}</div>
+                              <div className="stat-label-enhanced">Read</div>
                             </div>
-                            <div className="stat-card">
-                              <div className="stat-value">{flaggedCount}</div>
-                              <div className="stat-label">Flagged</div>
+                          </div>
+                          <div className="stat-card-enhanced warning">
+                            <div className="stat-card-icon">🚩</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{flaggedCount}</div>
+                              <div className="stat-label-enhanced">Flagged</div>
                             </div>
-                            <div className="stat-card">
-                              <div className="stat-value">{starredCount}</div>
-                              <div className="stat-label">Starred</div>
+                          </div>
+                          <div className="stat-card-enhanced info">
+                            <div className="stat-card-icon">⭐</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{starredCount}</div>
+                              <div className="stat-label-enhanced">Starred</div>
                             </div>
-                            <div className="stat-card">
-                              <div className="stat-value">{archivedCount}</div>
-                              <div className="stat-label">Archived</div>
+                          </div>
+                          <div className="stat-card-enhanced secondary">
+                            <div className="stat-card-icon">📦</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{archivedCount}</div>
+                              <div className="stat-label-enhanced">Archived</div>
                             </div>
                           </div>
                         </div>
                       </div>
 
                       {/* Activity Statistics */}
-                      <div className="customization-group">
-                        <div className="group-header">
-                          <span className="group-icon">📈</span>
-                          <span className="group-title">Activity</span>
+                      <div className="statistics-section-modern">
+                        <div className="stats-section-header">
+                          <div className="stats-section-icon">📈</div>
+                          <div>
+                            <h4 className="stats-section-title">Activity</h4>
+                            <p className="stats-section-subtitle">Recent activity metrics</p>
+                          </div>
                         </div>
-                        <div className="group-content">
-                          <div className="settings-item">
-                            <div className="settings-item-label">
-                              <label>Messages Today</label>
-                            </div>
-                            <div className="settings-item-value">
-                              <span className="stat-number">{todayMessages}</span>
-                            </div>
-                          </div>
-                          <div className="settings-item">
-                            <div className="settings-item-label">
-                              <label>Messages This Week</label>
-                            </div>
-                            <div className="settings-item-value">
-                              <span className="stat-number">{thisWeekMessages}</span>
+                        <div className="stats-grid-enhanced">
+                          <div className="stat-card-enhanced gradient-today">
+                            <div className="stat-card-icon">📅</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{todayMessages}</div>
+                              <div className="stat-label-enhanced">Messages Today</div>
                             </div>
                           </div>
-                          <div className="settings-item">
-                            <div className="settings-item-label">
-                              <label>Needs Response</label>
+                          <div className="stat-card-enhanced gradient-week">
+                            <div className="stat-card-icon">📆</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{thisWeekMessages}</div>
+                              <div className="stat-label-enhanced">This Week</div>
                             </div>
-                            <div className="settings-item-value">
-                              <span className="stat-number">{needsResponseCount}</span>
+                          </div>
+                          <div className="stat-card-enhanced gradient-response">
+                            <div className="stat-card-icon">💭</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{needsResponseCount}</div>
+                              <div className="stat-label-enhanced">Needs Response</div>
                             </div>
                           </div>
                         </div>
                       </div>
 
                       {/* Engagement Statistics */}
-                      <div className="customization-group">
-                        <div className="group-header">
-                          <span className="group-icon">🎯</span>
-                          <span className="group-title">Engagement</span>
+                      <div className="statistics-section-modern">
+                        <div className="stats-section-header">
+                          <div className="stats-section-icon">🎯</div>
+                          <div>
+                            <h4 className="stats-section-title">Engagement</h4>
+                            <p className="stats-section-subtitle">Community engagement metrics</p>
+                          </div>
                         </div>
-                        <div className="group-content">
-                          <div className="settings-item">
-                            <div className="settings-item-label">
-                              <label>Active Polls</label>
-                            </div>
-                            <div className="settings-item-value">
-                              <span className="stat-number">{activePolls.length}</span>
-                            </div>
-                          </div>
-                          <div className="settings-item">
-                            <div className="settings-item-label">
-                              <label>Total Vent Links</label>
-                            </div>
-                            <div className="settings-item-value">
-                              <span className="stat-number">{ventLinks.length}</span>
+                        <div className="stats-grid-enhanced">
+                          <div className="stat-card-enhanced gradient-polls">
+                            <div className="stat-card-icon">📊</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{activePolls.length}</div>
+                              <div className="stat-label-enhanced">Active Polls</div>
                             </div>
                           </div>
-                          <div className="settings-item">
-                            <div className="settings-item-label">
-                              <label>Account Created</label>
+                          <div className="stat-card-enhanced gradient-links">
+                            <div className="stat-card-icon">🔗</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">{ventLinks.length}</div>
+                              <div className="stat-label-enhanced">Vent Links</div>
                             </div>
-                            <div className="settings-item-value">
-                              <span>{profile?.created_at ? new Date(profile.created_at).toLocaleDateString() : 'N/A'}</span>
+                          </div>
+                          <div className="stat-card-enhanced gradient-account">
+                            <div className="stat-card-icon">👤</div>
+                            <div className="stat-card-content">
+                              <div className="stat-value-enhanced">
+                                {profile?.created_at 
+                                  ? Math.floor((new Date().getTime() - new Date(profile.created_at).getTime()) / (1000 * 60 * 60 * 24))
+                                  : '0'}
+                              </div>
+                              <div className="stat-label-enhanced">Days Active</div>
+                              {profile?.created_at && (
+                                <div className="stat-meta-enhanced">
+                                  Since {new Date(profile.created_at).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}
+                                </div>
+                              )}
                             </div>
                           </div>
                         </div>
@@ -6448,25 +6409,49 @@ export default function Dashboard() {
                       : 'Create a vent link first to start receiving messages!'}
                   </p>
                 </div>
-              ) : (
-                <div className="all-messages-grid">
-                  {filteredMessages
-                    .filter((msg) => {
-                      if (messageFilter === 'all') return !msg.is_archived
-                      if (messageFilter === 'unread') return !msg.is_read && !msg.is_archived
-                      if (messageFilter === 'read') return msg.is_read && !msg.is_archived
-                      if (messageFilter === 'flagged') return msg.is_flagged && !msg.is_archived
-                      if (messageFilter === 'starred') return msg.is_starred && !msg.is_archived
-                      if (messageFilter === 'archived') return msg.is_archived
-                      if (messageFilter === 'needs-response') return !msg.is_archived && !messageResponses[msg.id]
-                      return true
-                    })
-                    .sort((a, b) => {
-                      const dateA = new Date(a.created_at).getTime()
-                      const dateB = new Date(b.created_at).getTime()
-                      return messageSort === 'newest' ? dateB - dateA : dateA - dateB
-                    })
-                    .map((message) => (
+              ) : (() => {
+                const finalFiltered = filteredMessages.filter((msg) => {
+                  if (messageFilter === 'all') return !msg.is_archived
+                  if (messageFilter === 'unread') return !msg.is_read && !msg.is_archived
+                  if (messageFilter === 'read') return msg.is_read && !msg.is_archived
+                  if (messageFilter === 'flagged') return msg.is_flagged && !msg.is_archived
+                  if (messageFilter === 'starred') return msg.is_starred && !msg.is_archived
+                  if (messageFilter === 'archived') return msg.is_archived
+                  if (messageFilter === 'needs-response') return !msg.is_archived && !messageResponses[msg.id]
+                  return true
+                }).sort((a, b) => {
+                  const dateA = new Date(a.created_at).getTime()
+                  const dateB = new Date(b.created_at).getTime()
+                  return messageSort === 'newest' ? dateB - dateA : dateA - dateB
+                })
+
+                return finalFiltered.length === 0 ? (
+                  <div className="empty-messages-state">
+                    <div className="empty-icon-large">🔍</div>
+                    <h3>No messages match your filters</h3>
+                    <p className="empty-hint">
+                      Try adjusting your search, filter, or folder selection to see messages.
+                    </p>
+                    {(searchQuery || selectedFolderFilter || searchDateFrom || searchDateTo || searchByTag) && (
+                      <button
+                        className="btn btn-secondary"
+                        style={{ marginTop: '16px' }}
+                        onClick={() => {
+                          setSearchQuery('')
+                          setSelectedFolderFilter(null)
+                          setSearchDateFrom('')
+                          setSearchDateTo('')
+                          setSearchByTag('')
+                          setMessageFilter('all')
+                        }}
+                      >
+                        Clear All Filters
+                      </button>
+                    )}
+                  </div>
+                ) : (
+                  <div className="all-messages-grid">
+                    {finalFiltered.map((message) => (
                       <div
                         key={message.id}
                         className={`message-card ${!message.is_read ? 'unread' : ''} ${message.is_flagged ? 'flagged' : ''} ${selectedMessages.has(message.id) ? 'selected' : ''}`}
@@ -6502,7 +6487,7 @@ export default function Dashboard() {
                           <span className="message-card-time">{formatTimeAgo(message.created_at)}</span>
                         </div>
                         <div className="message-card-body">
-                          <p>{message.body}</p>
+                          <p style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{message.body || ''}</p>
                           {/* Tags */}
                           {messageTags[message.id] && messageTags[message.id].length > 0 && (
                             <div className="message-tags">
@@ -6564,8 +6549,9 @@ export default function Dashboard() {
                         </div>
                       </div>
                     ))}
-                </div>
-              )}
+                  </div>
+                )
+              })()}
           </div>
           ) : (
           <>

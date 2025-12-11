@@ -1257,7 +1257,7 @@ export default function VentPage() {
                           {msg.type === 'user' && msg.mood && (
                             <div className="chat-mood-badge">{MOODS.find(m => m.value === msg.mood)?.label || msg.mood}</div>
                           )}
-                          <div className="chat-text">{msg.text}</div>
+                          <div className="chat-text" style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>{msg.text || ''}</div>
                           <div className="chat-timestamp">
                             {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
@@ -1279,35 +1279,6 @@ export default function VentPage() {
                 </div>
               )}
             </div>
-
-            {/* Polls as Chat Cards */}
-            {activePolls.length > 0 && (
-              <div className="chat-polls-section">
-                {activePolls.slice(0, 2).map((poll) => (
-                  <div key={poll.id} className="chat-poll-card">
-                    <div className="chat-poll-header">
-                      <span className="chat-poll-icon">📊</span>
-                      <span className="chat-poll-title">{poll.question}</span>
-                    </div>
-                    {poll.description && (
-                      <div className="chat-poll-description">{poll.description}</div>
-                    )}
-                    <div className="chat-poll-options">
-                      {poll.options.slice(0, 3).map((option) => (
-                        <button
-                          key={option.id}
-                          className="chat-poll-option"
-                          onClick={() => handleVote(poll.id, option.id)}
-                          disabled={voting || votedPollId === poll.id}
-                        >
-                          {option.option_text}
-                        </button>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            )}
 
             {/* Message Input Area (Fixed at bottom) */}
             <div className="chat-input-container">
