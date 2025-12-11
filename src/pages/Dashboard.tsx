@@ -4237,7 +4237,9 @@ export default function Dashboard() {
   if (loading) {
     return (
       <div className="dashboard">
-        <div className="loading">Loading...</div>
+        <div className="loading-container">
+          <div className="loading-spinner"></div>
+        </div>
       </div>
     )
   }
