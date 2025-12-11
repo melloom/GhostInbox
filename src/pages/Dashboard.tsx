@@ -4042,6 +4042,28 @@ export default function Dashboard() {
     }
   }
 
+  async function deleteResponse(responseId: string, messageId: string) {
+    if (!confirm('Are you sure you want to delete this response? This cannot be undone.')) return
+
+    try {
+      const { error } = await supabase
+        .from('message_responses')
+        .delete()
+        .eq('id', responseId)
+
+      if (error) throw error
+      
+      // Update local state to remove the deleted response
+      setMessageResponsesData(prev => ({
+        ...prev,
+        [messageId]: (prev[messageId] || []).filter(r => r.id !== responseId)
+      }))
+    } catch (err: any) {
+      console.error('Error deleting response:', err)
+      alert('Error deleting response: ' + (err.message || 'Unknown error'))
+    }
+  }
+
   async function updateDisplayName() {
     if (!profile || !newDisplayName.trim()) return
 
@@ -9292,12 +9314,39 @@ export default function Dashboard() {
                     </h4>
                     <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
                       {messageResponsesData[selectedMessage.id].map((response) => (
-                        <div key={response.id} style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border)' }}>
+                        <div key={response.id} style={{ padding: '16px', background: 'var(--bg-card)', borderRadius: '8px', border: '1px solid var(--border)', position: 'relative' }}>
                           <div style={{ fontSize: '14px', color: 'var(--text-primary)', whiteSpace: 'pre-wrap', marginBottom: '8px' }}>
                             {response.response_text}
                           </div>
                           <div style={{ fontSize: '12px', color: 'var(--text-secondary)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                             <span>{new Date(response.created_at).toLocaleString()}</span>
+                            {profile && response.owner_id === profile.id && (
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation()
+                                  deleteResponse(response.id, selectedMessage.id)
+                                }}
+                                style={{
+                                  padding: '4px 12px',
+                                  fontSize: '12px',
+                                  background: 'var(--danger)',
+                                  color: 'white',
+                                  border: 'none',
+                                  borderRadius: '4px',
+                                  cursor: 'pointer',
+                                  transition: 'opacity 0.2s'
+                                }}
+                                onMouseEnter={(e) => {
+                                  e.currentTarget.style.opacity = '0.8'
+                                }}
+                                onMouseLeave={(e) => {
+                                  e.currentTarget.style.opacity = '1'
+                                }}
+                                title="Delete response"
+                              >
+                                Delete
+                              </button>
+                            )}
                           </div>
                         </div>
                       ))}

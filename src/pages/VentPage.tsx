@@ -987,10 +987,8 @@ export default function VentPage() {
 
   if (loading) {
     return (
-      <div className="vent-page">
-        <div className="loading-container">
-          <div className="loading-spinner"></div>
-        </div>
+      <div className="loading-container">
+        <div className="loading-spinner"></div>
       </div>
     )
   }
