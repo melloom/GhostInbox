@@ -1216,7 +1216,7 @@ export default function Dashboard() {
       // Fetch user's vent links
       const { data: links, error: linksError } = await supabase
         .from('vent_links')
-        .select('id, slug, title, owner_id, is_active, created_at')
+        .select('id, slug, title, owner_id, is_active, created_at, logo_url, background_color, background_image_url, accent_color, custom_links, header_text, description')
         .eq('owner_id', user.id)
         .order('created_at', { ascending: false })
 
@@ -4646,6 +4646,321 @@ export default function Dashboard() {
                     </div>
                       </>
                     )}
+                  </div>
+                )}
+
+                {/* Vent Page Customization */}
+                {primaryVentLink && (
+                  <div className="settings-section">
+                    <h3>🎨 Customize Your Vent Page</h3>
+                    <p className="settings-subtitle" style={{ marginTop: '-16px', marginBottom: '20px' }}>
+                      Make your vent page unique with custom branding, colors, and links
+                    </p>
+
+                    {/* Logo Upload */}
+                    <div className="settings-item">
+                      <div className="settings-item-label">
+                        <label>Logo URL</label>
+                        <span className="settings-hint">URL to your logo image (will be displayed on your vent page)</span>
+                      </div>
+                      <div className="settings-item-value">
+                        <input
+                          type="url"
+                          className="input"
+                          value={primaryVentLink.logo_url || ''}
+                          onChange={(e) => {
+                            const updated = ventLinks.map(l => 
+                              l.id === primaryVentLink.id 
+                                ? { ...l, logo_url: e.target.value }
+                                : l
+                            )
+                            setVentLinks(updated)
+                          }}
+                          placeholder="https://example.com/logo.png"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Header Text */}
+                    <div className="settings-item">
+                      <div className="settings-item-label">
+                        <label>Header Text</label>
+                        <span className="settings-hint">Custom text displayed at the top of your vent page</span>
+                      </div>
+                      <div className="settings-item-value">
+                        <input
+                          type="text"
+                          className="input"
+                          value={primaryVentLink.header_text || ''}
+                          onChange={(e) => {
+                            const updated = ventLinks.map(l => 
+                              l.id === primaryVentLink.id 
+                                ? { ...l, header_text: e.target.value }
+                                : l
+                            )
+                            setVentLinks(updated)
+                          }}
+                          placeholder="Talk to me anonymously..."
+                          maxLength={100}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Description */}
+                    <div className="settings-item">
+                      <div className="settings-item-label">
+                        <label>Description</label>
+                        <span className="settings-hint">Brief description about yourself or your page</span>
+                      </div>
+                      <div className="settings-item-value">
+                        <textarea
+                          className="textarea"
+                          value={primaryVentLink.description || ''}
+                          onChange={(e) => {
+                            const updated = ventLinks.map(l => 
+                              l.id === primaryVentLink.id 
+                                ? { ...l, description: e.target.value }
+                                : l
+                            )
+                            setVentLinks(updated)
+                          }}
+                          placeholder="Tell visitors what your vent page is about..."
+                          rows={3}
+                          maxLength={500}
+                        />
+                      </div>
+                    </div>
+
+                    {/* Background Color */}
+                    <div className="settings-item">
+                      <div className="settings-item-label">
+                        <label>Background Color</label>
+                        <span className="settings-hint">Choose a background color for your vent page</span>
+                      </div>
+                      <div className="settings-item-value">
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            type="color"
+                            value={primaryVentLink.background_color || '#0a0a0a'}
+                            onChange={(e) => {
+                              const updated = ventLinks.map(l => 
+                                l.id === primaryVentLink.id 
+                                  ? { ...l, background_color: e.target.value }
+                                  : l
+                              )
+                              setVentLinks(updated)
+                            }}
+                            style={{ width: '60px', height: '40px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '4px' }}
+                          />
+                          <input
+                            type="text"
+                            className="input"
+                            value={primaryVentLink.background_color || ''}
+                            onChange={(e) => {
+                              const updated = ventLinks.map(l => 
+                                l.id === primaryVentLink.id 
+                                  ? { ...l, background_color: e.target.value }
+                                  : l
+                              )
+                              setVentLinks(updated)
+                            }}
+                            placeholder="#0a0a0a"
+                            style={{ flex: 1 }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Background Image */}
+                    <div className="settings-item">
+                      <div className="settings-item-label">
+                        <label>Background Image URL</label>
+                        <span className="settings-hint">Optional background image (will overlay on background color)</span>
+                      </div>
+                      <div className="settings-item-value">
+                        <input
+                          type="url"
+                          className="input"
+                          value={primaryVentLink.background_image_url || ''}
+                          onChange={(e) => {
+                            const updated = ventLinks.map(l => 
+                              l.id === primaryVentLink.id 
+                                ? { ...l, background_image_url: e.target.value }
+                                : l
+                            )
+                            setVentLinks(updated)
+                          }}
+                          placeholder="https://example.com/background.jpg"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Accent Color */}
+                    <div className="settings-item">
+                      <div className="settings-item-label">
+                        <label>Accent Color</label>
+                        <span className="settings-hint">Color for buttons and highlights</span>
+                      </div>
+                      <div className="settings-item-value">
+                        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                          <input
+                            type="color"
+                            value={primaryVentLink.accent_color || '#8b5cf6'}
+                            onChange={(e) => {
+                              const updated = ventLinks.map(l => 
+                                l.id === primaryVentLink.id 
+                                  ? { ...l, accent_color: e.target.value }
+                                  : l
+                              )
+                              setVentLinks(updated)
+                            }}
+                            style={{ width: '60px', height: '40px', cursor: 'pointer', border: '1px solid var(--border)', borderRadius: '4px' }}
+                          />
+                          <input
+                            type="text"
+                            className="input"
+                            value={primaryVentLink.accent_color || ''}
+                            onChange={(e) => {
+                              const updated = ventLinks.map(l => 
+                                l.id === primaryVentLink.id 
+                                  ? { ...l, accent_color: e.target.value }
+                                  : l
+                              )
+                              setVentLinks(updated)
+                            }}
+                            placeholder="#8b5cf6"
+                            style={{ flex: 1 }}
+                          />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Custom Links */}
+                    <div className="settings-item">
+                      <div className="settings-item-label">
+                        <label>Custom Links</label>
+                        <span className="settings-hint">Add links to your social media, website, or other pages</span>
+                      </div>
+                      <div className="settings-item-value" style={{ width: '100%' }}>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', width: '100%' }}>
+                          {(primaryVentLink.custom_links || []).map((link, index) => (
+                            <div key={index} style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+                              <input
+                                type="text"
+                                className="input"
+                                value={link.icon || ''}
+                                onChange={(e) => {
+                                  const updatedLinks = [...(primaryVentLink.custom_links || [])]
+                                  updatedLinks[index] = { ...link, icon: e.target.value }
+                                  const updated = ventLinks.map(l => 
+                                    l.id === primaryVentLink.id 
+                                      ? { ...l, custom_links: updatedLinks }
+                                      : l
+                                  )
+                                  setVentLinks(updated)
+                                }}
+                                placeholder="🔗"
+                                style={{ width: '60px' }}
+                              />
+                              <input
+                                type="text"
+                                className="input"
+                                value={link.label}
+                                onChange={(e) => {
+                                  const updatedLinks = [...(primaryVentLink.custom_links || [])]
+                                  updatedLinks[index] = { ...link, label: e.target.value }
+                                  const updated = ventLinks.map(l => 
+                                    l.id === primaryVentLink.id 
+                                      ? { ...l, custom_links: updatedLinks }
+                                      : l
+                                  )
+                                  setVentLinks(updated)
+                                }}
+                                placeholder="Link Label"
+                                style={{ flex: 1 }}
+                              />
+                              <input
+                                type="url"
+                                className="input"
+                                value={link.url}
+                                onChange={(e) => {
+                                  const updatedLinks = [...(primaryVentLink.custom_links || [])]
+                                  updatedLinks[index] = { ...link, url: e.target.value }
+                                  const updated = ventLinks.map(l => 
+                                    l.id === primaryVentLink.id 
+                                      ? { ...l, custom_links: updatedLinks }
+                                      : l
+                                  )
+                                  setVentLinks(updated)
+                                }}
+                                placeholder="https://..."
+                                style={{ flex: 2 }}
+                              />
+                              <button
+                                onClick={() => {
+                                  const updatedLinks = (primaryVentLink.custom_links || []).filter((_, i) => i !== index)
+                                  const updated = ventLinks.map(l => 
+                                    l.id === primaryVentLink.id 
+                                      ? { ...l, custom_links: updatedLinks }
+                                      : l
+                                  )
+                                  setVentLinks(updated)
+                                }}
+                                className="btn btn-danger btn-small"
+                              >
+                                ✕
+                              </button>
+                            </div>
+                          ))}
+                          <button
+                            onClick={() => {
+                              const updatedLinks = [...(primaryVentLink.custom_links || []), { label: '', url: '', icon: '🔗' }]
+                              const updated = ventLinks.map(l => 
+                                l.id === primaryVentLink.id 
+                                  ? { ...l, custom_links: updatedLinks }
+                                  : l
+                              )
+                              setVentLinks(updated)
+                            }}
+                            className="btn btn-secondary"
+                            style={{ alignSelf: 'flex-start' }}
+                          >
+                            + Add Link
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* Save Button */}
+                    <div style={{ marginTop: '24px', paddingTop: '24px', borderTop: '1px solid var(--border)' }}>
+                      <button
+                        onClick={async () => {
+                          try {
+                            const { error } = await supabase
+                              .from('vent_links')
+                              .update({
+                                logo_url: primaryVentLink.logo_url || null,
+                                header_text: primaryVentLink.header_text || null,
+                                description: primaryVentLink.description || null,
+                                background_color: primaryVentLink.background_color || null,
+                                background_image_url: primaryVentLink.background_image_url || null,
+                                accent_color: primaryVentLink.accent_color || null,
+                                custom_links: primaryVentLink.custom_links || null,
+                              })
+                              .eq('id', primaryVentLink.id)
+
+                            if (error) throw error
+                            alert('Vent page customization saved!')
+                          } catch (err: any) {
+                            alert('Error saving customization: ' + (err.message || 'Unknown error'))
+                          }
+                        }}
+                        className="btn"
+                        style={{ width: '100%' }}
+                      >
+                        💾 Save Customization
+                      </button>
+                    </div>
                   </div>
                 )}
 

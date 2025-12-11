@@ -52,6 +52,7 @@ export default function VentPage() {
   const [feedbackResponses, setFeedbackResponses] = useState<{ [formId: string]: string }>({})
   const [submittingFeedback, setSubmittingFeedback] = useState<string | null>(null)
   const [userMessageIds, setUserMessageIds] = useState<string[]>([])
+  const [userMessages, setUserMessages] = useState<Array<{ id: string; body: string; mood?: string; created_at: string }>>([])
   const [messageResponses, setMessageResponses] = useState<{ [messageId: string]: Array<{ id: string; response_text: string; created_at: string }> }>({})
   const [showResponses, setShowResponses] = useState(false)
 
@@ -60,10 +61,10 @@ export default function VentPage() {
 
     async function fetchVentLink() {
       try {
-        // Fetch vent link
+        // Fetch vent link with customization fields
         const { data: ventLinkData, error: ventLinkError } = await supabase
           .from('vent_links')
-          .select('id, title, owner_id')
+          .select('id, title, owner_id, logo_url, background_color, background_image_url, accent_color, custom_links, header_text, description')
           .eq('slug', slug)
           .eq('is_active', true)
           .single()
@@ -524,7 +525,7 @@ export default function VentPage() {
     }
   }, [ventLink, activeVotes])
 
-  // Load user's message IDs from localStorage
+  // Load user's messages from localStorage
   useEffect(() => {
     if (!ventLink) return
     
@@ -532,14 +533,27 @@ export default function VentPage() {
     const stored = localStorage.getItem(storageKey)
     if (stored) {
       try {
-        const messageIds = JSON.parse(stored)
-        setUserMessageIds(messageIds)
-        // Fetch responses for all stored message IDs
-        messageIds.forEach((messageId: string) => {
-          fetchMessageResponses(messageId)
-        })
+        const messageData = JSON.parse(stored)
+        // Support both old format (just IDs) and new format (full messages)
+        if (Array.isArray(messageData) && messageData.length > 0) {
+          if (typeof messageData[0] === 'string') {
+            // Old format - just IDs
+            setUserMessageIds(messageData)
+            messageData.forEach((messageId: string) => {
+              fetchMessageResponses(messageId)
+            })
+          } else {
+            // New format - full messages
+            const ids = messageData.map((m: any) => m.id)
+            setUserMessageIds(ids)
+            setUserMessages(messageData)
+            ids.forEach((messageId: string) => {
+              fetchMessageResponses(messageId)
+            })
+          }
+        }
       } catch (err) {
-        console.error('Error loading message IDs:', err)
+        console.error('Error loading messages:', err)
       }
     }
   }, [ventLink])
@@ -654,15 +668,22 @@ export default function VentPage() {
       }
 
 
-      // Store message ID in localStorage so user can receive responses
+      // Store message ID and content in localStorage so user can receive responses
       if (insertedData?.id) {
         const storageKey = `user_messages_${ventLink.id}`
         const existing = localStorage.getItem(storageKey)
-        const messageIds = existing ? JSON.parse(existing) : []
-        if (!messageIds.includes(insertedData.id)) {
-          messageIds.push(insertedData.id)
-          localStorage.setItem(storageKey, JSON.stringify(messageIds))
-          setUserMessageIds(messageIds)
+        const messages = existing ? JSON.parse(existing) : []
+        const newMessage = {
+          id: insertedData.id,
+          body: sanitized,
+          mood: mood || null,
+          created_at: new Date().toISOString()
+        }
+        if (!messages.some((m: any) => m.id === insertedData.id)) {
+          messages.push(newMessage)
+          localStorage.setItem(storageKey, JSON.stringify(messages))
+          setUserMessageIds(messages.map((m: any) => m.id))
+          setUserMessages(messages)
           // Fetch responses for this message
           fetchMessageResponses(insertedData.id)
         }
@@ -1001,21 +1022,101 @@ export default function VentPage() {
     )
   }
 
-  const displayTitle = ventLink.title || `Talk to @${ventLink.profiles?.handle || 'me'}`
+  const displayTitle = ventLink.header_text || ventLink.title || `Talk to @${ventLink.profiles?.handle || 'me'}`
 
   return (
-    <div className="vent-page">
-      <div className="vent-container">
+    <div 
+      className="vent-page"
+      style={{
+        background: ventLink.background_color 
+          ? ventLink.background_color 
+          : undefined,
+        backgroundImage: ventLink.background_image_url
+          ? `url(${ventLink.background_image_url})`
+          : undefined,
+        backgroundSize: ventLink.background_image_url ? 'cover' : undefined,
+        backgroundPosition: ventLink.background_image_url ? 'center' : undefined,
+        backgroundRepeat: ventLink.background_image_url ? 'no-repeat' : undefined,
+      }}
+    >
+      <style>{`
+        .vent-page-custom-accent {
+          --accent: ${ventLink.accent_color || 'var(--accent)'};
+          --accent-hover: ${ventLink.accent_color || 'var(--accent-hover)'};
+        }
+        .vent-page-custom-accent .btn-primary,
+        .vent-page-custom-accent .chat-send-button,
+        .vent-page-custom-accent .vent-tab.active {
+          background: ${ventLink.accent_color || 'var(--accent)'};
+        }
+        .vent-page-custom-accent .chat-message-sent .chat-bubble {
+          background: linear-gradient(135deg, ${ventLink.accent_color || 'var(--accent)'} 0%, ${ventLink.accent_color || 'var(--accent-hover)'} 100%);
+        }
+      `}</style>
+      <div className="vent-container vent-page-custom-accent">
         <div className="hero-card">
         <div className="creator-header">
-          <div className="avatar-circle">
-            {displayTitle.charAt(0).toUpperCase()}
-          </div>
+          {ventLink.logo_url ? (
+            <img 
+              src={ventLink.logo_url} 
+              alt="Logo" 
+              className="avatar-circle"
+              style={{ 
+                objectFit: 'cover',
+                background: 'transparent',
+                boxShadow: 'none'
+              }}
+            />
+          ) : (
+            <div className="avatar-circle">
+              {displayTitle.charAt(0).toUpperCase()}
+            </div>
+          )}
             <div className="hero-text">
           <h1>{displayTitle}</h1>
-              <p className="subtitle">Drop a note. You stay anonymous—always.</p>
+              <p className="subtitle">{ventLink.description || "Drop a note. You stay anonymous—always."}</p>
             </div>
         </div>
+
+          {/* Custom Links */}
+          {ventLink.custom_links && ventLink.custom_links.length > 0 && (
+            <div className="custom-links-section" style={{ marginTop: '16px', display: 'flex', flexWrap: 'wrap', gap: '10px' }}>
+              {ventLink.custom_links.map((link, index) => (
+                <a
+                  key={index}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="custom-link-button"
+                  style={{
+                    display: 'inline-flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    padding: '10px 16px',
+                    borderRadius: '8px',
+                    background: 'rgba(255, 255, 255, 0.05)',
+                    border: '1px solid rgba(255, 255, 255, 0.1)',
+                    color: 'var(--text-primary)',
+                    textDecoration: 'none',
+                    fontSize: '14px',
+                    transition: 'all 0.2s',
+                    cursor: 'pointer'
+                  }}
+                  onMouseEnter={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)'
+                    e.currentTarget.style.transform = 'translateY(-2px)'
+                  }}
+                  onMouseLeave={(e) => {
+                    e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)'
+                    e.currentTarget.style.transform = 'translateY(0)'
+                  }}
+                >
+                  <span>{link.icon || '🔗'}</span>
+                  <span>{link.label}</span>
+                </a>
+              ))}
+            </div>
+          )}
 
           <div className="trust-grid">
             <div className="trust-pill">
@@ -1100,142 +1201,156 @@ export default function VentPage() {
 
         {/* Tab Content */}
         {activeTab === 'message' && (
-          <div className="tab-content">
-            <div className="form-card">
-              <div className="form-header">
-                <h3>Send a message</h3>
-                <p className="form-hint">Anonymous. No tracking. Just words.</p>
-              </div>
-
-              <form onSubmit={handleSubmit} className="vent-form">
-                <textarea
-                  className="textarea"
-                  value={message}
-                  onChange={(e) => setMessage(e.target.value)}
-                  placeholder="Say what you need to say..."
-                  required
-                  disabled={submitting}
-                  maxLength={5000}
-                />
-                <div className="char-counter">
-                  {message.length} / 5000 characters
+          <div className="chat-interface">
+            {/* Chat Messages Area */}
+            <div className="chat-messages-container">
+              {userMessages.length === 0 && userMessageIds.length === 0 ? (
+                <div className="chat-empty-state">
+                  <div className="chat-empty-icon">💬</div>
+                  <h3>Start a conversation</h3>
+                  <p>Send an anonymous message below to start chatting.</p>
                 </div>
-
-                <select
-                  className="select"
-                  value={mood}
-                  onChange={(e) => setMood(e.target.value)}
-                  disabled={submitting}
-                >
-                  {MOODS.map((m) => (
-                    <option key={m.value} value={m.value}>
-                      {m.label}
-                    </option>
-                  ))}
-                </select>
-
-                {status && (
-                  <div className={status.includes('wrong') || status.includes('Please') ? 'error-message' : 'success-message'}>
-                    {status}
-                  </div>
-                )}
-
-                {error && <div className="error-message">{error}</div>}
-
-                <button
-                  type="submit"
-                  className="btn btn-primary"
-                  disabled={submitting || !message.trim()}
-                >
-                  {submitting ? 'Sending...' : 'Send anonymously'}
-                </button>
-              </form>
-            </div>
-
-            {/* Responses Section */}
-            {userMessageIds.length > 0 && (
-              <div className="responses-section" style={{ marginTop: '24px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
-                  <h3 style={{ margin: 0, display: 'flex', alignItems: 'center', gap: '8px' }}>
-                    <span>💬</span>
-                    <span>Responses to Your Messages</span>
-                  </h3>
-                  <button
-                    onClick={() => setShowResponses(!showResponses)}
-                    className="btn btn-small"
-                    style={{ fontSize: '14px', padding: '6px 12px' }}
-                  >
-                    {showResponses ? 'Hide' : 'Show'} ({userMessageIds.length})
-                  </button>
-                </div>
-                
-                {showResponses && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-                    {userMessageIds.map((messageId) => {
-                      const responses = messageResponses[messageId] || []
-                      if (responses.length === 0) return null
+              ) : (
+                <div className="chat-messages">
+                  {/* Combine user messages and responses into chronological order */}
+                  {(() => {
+                    const allMessages: Array<{ type: 'user' | 'response'; messageId: string; id: string; text: string; timestamp: string; mood?: string }> = []
+                    
+                    // Add user messages
+                    userMessages.forEach((msg) => {
+                      allMessages.push({
+                        type: 'user',
+                        messageId: msg.id,
+                        id: msg.id,
+                        text: msg.body,
+                        timestamp: msg.created_at,
+                        mood: msg.mood || undefined
+                      })
                       
-                      return (
-                        <div key={messageId} style={{ 
-                          padding: '16px', 
-                          background: 'var(--bg-card)', 
-                          borderRadius: '12px', 
-                          border: '1px solid var(--border)',
-                          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-                        }}>
-                          <div style={{ 
-                            fontSize: '12px', 
-                            color: 'var(--text-secondary)', 
-                            marginBottom: '12px',
-                            fontWeight: 500
-                          }}>
-                            Response{responses.length > 1 ? 's' : ''} ({responses.length})
-                          </div>
-                          <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                            {responses.map((response) => (
-                              <div key={response.id} style={{ 
-                                padding: '12px', 
-                                background: 'var(--bg-secondary)', 
-                                borderRadius: '8px',
-                                borderLeft: '3px solid var(--accent)'
-                              }}>
-                                <div style={{ 
-                                  fontSize: '14px', 
-                                  color: 'var(--text-primary)', 
-                                  whiteSpace: 'pre-wrap',
-                                  marginBottom: '8px',
-                                  lineHeight: '1.5'
-                                }}>
-                                  {response.response_text}
-                                </div>
-                                <div style={{ 
-                                  fontSize: '12px', 
-                                  color: 'var(--text-secondary)'
-                                }}>
-                                  {new Date(response.created_at).toLocaleString()}
-                                </div>
-                              </div>
-                            ))}
+                      // Add responses to this message
+                      const responses = messageResponses[msg.id] || []
+                      responses.forEach((resp) => {
+                        allMessages.push({
+                          type: 'response',
+                          messageId: msg.id,
+                          id: resp.id,
+                          text: resp.response_text,
+                          timestamp: resp.created_at
+                        })
+                      })
+                    })
+                    
+                    // Sort by timestamp
+                    allMessages.sort((a, b) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime())
+                    
+                    return allMessages.map((msg) => (
+                      <div key={msg.id} className={`chat-message ${msg.type === 'user' ? 'chat-message-sent' : 'chat-message-received'}`}>
+                        <div className="chat-bubble">
+                          {msg.type === 'user' && msg.mood && (
+                            <div className="chat-mood-badge">{MOODS.find(m => m.value === msg.mood)?.label || msg.mood}</div>
+                          )}
+                          <div className="chat-text">{msg.text}</div>
+                          <div className="chat-timestamp">
+                            {new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
                           </div>
                         </div>
-                      )
-                    })}
-                    {userMessageIds.every(id => !messageResponses[id] || messageResponses[id].length === 0) && (
-                      <div style={{ 
-                        padding: '20px', 
-                        textAlign: 'center', 
-                        color: 'var(--text-secondary)',
-                        background: 'var(--bg-secondary)',
-                        borderRadius: '8px'
-                      }}>
-                        No responses yet. Check back later!
                       </div>
+                    ))
+                  })()}
+                  
+                  {userMessageIds.length > 0 && userMessageIds.every(id => !messageResponses[id] || messageResponses[id].length === 0) && (
+                    <div className="chat-typing-indicator">
+                      <span>Waiting for response...</span>
+                      <div className="typing-dots">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Polls as Chat Cards */}
+            {activePolls.length > 0 && (
+              <div className="chat-polls-section">
+                {activePolls.slice(0, 2).map((poll) => (
+                  <div key={poll.id} className="chat-poll-card">
+                    <div className="chat-poll-header">
+                      <span className="chat-poll-icon">📊</span>
+                      <span className="chat-poll-title">{poll.question}</span>
+                    </div>
+                    {poll.description && (
+                      <div className="chat-poll-description">{poll.description}</div>
                     )}
+                    <div className="chat-poll-options">
+                      {poll.options.slice(0, 3).map((option) => (
+                        <button
+                          key={option.id}
+                          className="chat-poll-option"
+                          onClick={() => handleVote(poll.id, option.id)}
+                          disabled={voting || votedPollId === poll.id}
+                        >
+                          {option.option_text}
+                        </button>
+                      ))}
+                    </div>
                   </div>
-                )}
+                ))}
               </div>
             )}
 
+            {/* Message Input Area (Fixed at bottom) */}
+            <div className="chat-input-container">
+              {status && (
+                <div className={`chat-status ${status.includes('wrong') || status.includes('Please') ? 'chat-status-error' : 'chat-status-success'}`}>
+                  {status}
+                </div>
+              )}
+              {error && <div className="chat-status chat-status-error">{error}</div>}
+              
+              <form onSubmit={handleSubmit} className="chat-form">
+                <div className="chat-input-wrapper">
+                  <div className="chat-mood-selector">
+                    <select
+                      className="chat-mood-select"
+                      value={mood}
+                      onChange={(e) => setMood(e.target.value)}
+                      disabled={submitting}
+                      title="Select mood"
+                    >
+                      {MOODS.filter(m => m.value).map((m) => (
+                        <option key={m.value} value={m.value}>
+                          {m.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                  <textarea
+                    className="chat-input"
+                    value={message}
+                    onChange={(e) => setMessage(e.target.value)}
+                    placeholder="Type a message..."
+                    required
+                    disabled={submitting}
+                    maxLength={5000}
+                    rows={1}
+                  />
+                  <button
+                    type="submit"
+                    className="chat-send-button"
+                    disabled={submitting || !message.trim()}
+                    title="Send"
+                  >
+                    {submitting ? '⏳' : '📤'}
+                  </button>
+                </div>
+                <div className="chat-char-counter">
+                  {message.length} / 5000
+                </div>
+              </form>
+            </div>
           </div>
         )}
 

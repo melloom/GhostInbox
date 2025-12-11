@@ -68,6 +68,15 @@ export interface VentLink {
   title: string
   is_active: boolean
   created_at: string
+  // Customization fields
+  logo_url?: string | null
+  background_color?: string | null
+  background_image_url?: string | null
+  accent_color?: string | null
+  custom_links?: Array<{ label: string; url: string; icon?: string }> | null
+  custom_css?: string | null
+  header_text?: string | null
+  description?: string | null
 }
 
 export interface VentMessage {
