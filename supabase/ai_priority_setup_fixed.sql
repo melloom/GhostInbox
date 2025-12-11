@@ -1,6 +1,14 @@
--- AI Priority Scoring Auto-Processing Setup
+-- AI Priority Scoring Auto-Processing Setup (FIXED VERSION)
 -- This file sets up automatic AI priority scoring for new messages
+-- Run this AFTER running enhanced_moderation_schema.sql if you want moderation fields included
 -- Run this in your Supabase SQL Editor
+
+-- ============================================================================
+-- IMPORTANT: Run these files in order:
+-- 1. supabase/ai_features_schema.sql (adds basic AI columns)
+-- 2. supabase/enhanced_moderation_schema.sql (adds moderation columns - OPTIONAL)
+-- 3. This file (ai_priority_setup.sql)
+-- ============================================================================
 
 -- ============================================================================
 -- 1) Function to call Edge Function for priority scoring (using pg_net)
@@ -30,8 +38,7 @@ BEGIN
   v_edge_function_url := v_supabase_url || '/functions/v1/ai-priority-enhanced';
   
   -- Build request body with available fields
-  -- Note: Moderation fields (ai_moderation_severity, ai_self_harm_risk) are only included
-  -- if enhanced_moderation_schema.sql has been run. If not, they'll be NULL which is fine.
+  -- Moderation fields will be NULL if enhanced_moderation_schema.sql hasn't been run
   v_request_body := jsonb_build_object(
     'message_id', NEW.id,
     'message_body', NEW.body,
@@ -99,8 +106,7 @@ CREATE TRIGGER auto_score_priority_on_insert
   EXECUTE FUNCTION public.auto_score_priority();
 
 -- Trigger on update (when categorization is added, re-score priority)
--- Note: This trigger only watches basic AI fields. If you've run enhanced_moderation_schema.sql,
--- you can add moderation fields to this trigger or create a separate one.
+-- This only watches basic AI fields to avoid errors if moderation columns don't exist
 CREATE TRIGGER auto_score_priority_on_update
   AFTER UPDATE OF ai_category, ai_sentiment, ai_urgency ON public.vent_messages
   FOR EACH ROW
@@ -108,17 +114,6 @@ CREATE TRIGGER auto_score_priority_on_update
         OR OLD.ai_sentiment IS DISTINCT FROM NEW.ai_sentiment 
         OR OLD.ai_urgency IS DISTINCT FROM NEW.ai_urgency)
   EXECUTE FUNCTION public.auto_score_priority();
-
--- Optional: Additional trigger for moderation fields (only if enhanced_moderation_schema.sql has been run)
--- Uncomment this after running enhanced_moderation_schema.sql:
-/*
-CREATE TRIGGER auto_score_priority_on_moderation_update
-  AFTER UPDATE OF ai_moderation_severity, ai_self_harm_risk ON public.vent_messages
-  FOR EACH ROW
-  WHEN (OLD.ai_moderation_severity IS DISTINCT FROM NEW.ai_moderation_severity
-        OR OLD.ai_self_harm_risk IS DISTINCT FROM NEW.ai_self_harm_risk)
-  EXECUTE FUNCTION public.auto_score_priority();
-*/
 
 -- ============================================================================
 -- 3) Function to manually trigger priority scoring
@@ -142,34 +137,41 @@ DECLARE
   v_service_role_key TEXT;
   v_edge_function_url TEXT;
   v_response_id BIGINT;
+  v_request_body JSONB;
 BEGIN
   -- Get message details including AI data
-  -- Note: Moderation fields (ai_moderation_severity, ai_self_harm_risk) are optional
-  -- They will be NULL if enhanced_moderation_schema.sql hasn't been run yet
+  -- Use a simple SELECT that won't fail if moderation columns don't exist
   SELECT 
     vm.body, 
     vm.vent_link_id, 
     vm.created_at,
     vm.ai_category,
     vm.ai_sentiment,
-    vm.ai_urgency,
-    COALESCE(vm.ai_moderation_severity, NULL) as ai_moderation_severity,
-    COALESCE(vm.ai_self_harm_risk, NULL) as ai_self_harm_risk
+    vm.ai_urgency
   INTO 
     v_message_body, 
     v_vent_link_id, 
     v_created_at,
     v_ai_category,
     v_ai_sentiment,
-    v_ai_urgency,
-    v_ai_moderation_severity,
-    v_ai_self_harm_risk
+    v_ai_urgency
   FROM public.vent_messages vm
   WHERE vm.id = p_message_id;
   
   IF v_message_body IS NULL THEN
     RAISE EXCEPTION 'Message not found: %', p_message_id;
   END IF;
+  
+  -- Try to get moderation fields using dynamic SQL (only if columns exist)
+  BEGIN
+    EXECUTE format('SELECT ai_moderation_severity, ai_self_harm_risk FROM public.vent_messages WHERE id = %L', p_message_id)
+      INTO v_ai_moderation_severity, v_ai_self_harm_risk;
+  EXCEPTION
+    WHEN undefined_column THEN
+      -- Columns don't exist yet - that's fine, leave as NULL
+      v_ai_moderation_severity := NULL;
+      v_ai_self_harm_risk := NULL;
+  END;
   
   -- Get Supabase URL
   v_supabase_url := current_setting('app.settings.supabase_url', true);
@@ -181,6 +183,25 @@ BEGIN
   -- Use enhanced priority scoring for better accuracy
   v_edge_function_url := v_supabase_url || '/functions/v1/ai-priority-enhanced';
   
+  -- Build request body
+  v_request_body := jsonb_build_object(
+    'message_id', p_message_id,
+    'message_body', v_message_body,
+    'vent_link_id', v_vent_link_id,
+    'created_at', v_created_at,
+    'ai_category', v_ai_category,
+    'ai_sentiment', v_ai_sentiment,
+    'ai_urgency', v_ai_urgency
+  );
+  
+  -- Add moderation fields if we got them
+  IF v_ai_moderation_severity IS NOT NULL THEN
+    v_request_body := v_request_body || jsonb_build_object('ai_moderation_severity', v_ai_moderation_severity);
+  END IF;
+  IF v_ai_self_harm_risk IS NOT NULL THEN
+    v_request_body := v_request_body || jsonb_build_object('ai_self_harm_risk', v_ai_self_harm_risk);
+  END IF;
+  
   -- Schedule HTTP request
   SELECT net.http_post(
     url := v_edge_function_url,
@@ -189,18 +210,7 @@ BEGIN
       'Authorization', 'Bearer ' || COALESCE(v_service_role_key, ''),
       'apikey', COALESCE(v_service_role_key, '')
     ),
-    body := jsonb_build_object(
-      'message_id', p_message_id,
-      'message_body', v_message_body,
-      'vent_link_id', v_vent_link_id,
-      'created_at', v_created_at,
-      'ai_category', v_ai_category,
-      'ai_sentiment', v_ai_sentiment,
-      'ai_urgency', v_ai_urgency
-      -- Note: Moderation fields omitted here - they'll be NULL
-      -- After running enhanced_moderation_schema.sql, you can add them back
-      -- or the Edge Function will work fine without them
-    )
+    body := v_request_body
   ) INTO v_response_id;
   
   RAISE NOTICE 'Priority scoring triggered for message % (request ID: %)', p_message_id, v_response_id;

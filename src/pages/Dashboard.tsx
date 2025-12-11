@@ -10556,8 +10556,17 @@ export default function Dashboard() {
             <div className="dashboard-main-layout">
             {/* Messages List - Left Side */}
             <div className="card messages-panel">
-              <div className="messages-header">
-                <h2>Messages {unreadCount > 0 && <span className="badge badge-unread">{unreadCount} unread</span>}</h2>
+              <div className="messages-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                <h2>New Messages {unreadCount > 0 && <span className="badge badge-unread">{unreadCount} unread</span>}</h2>
+                {messages.filter(m => !m.is_archived).length > 10 && (
+                  <button
+                    onClick={() => setActiveTab('messages')}
+                    className="btn btn-secondary"
+                    style={{ fontSize: '13px', padding: '6px 12px' }}
+                  >
+                    View All Messages ({messages.filter(m => !m.is_archived).length})
+                  </button>
+                )}
               </div>
 
               {messages.length === 0 ? (
@@ -10572,7 +10581,17 @@ export default function Dashboard() {
                 </div>
               ) : (
                 <div className="messages-list">
-                  {messages.map((message) => (
+                  {messages
+                    .filter(m => !m.is_archived)
+                    .sort((a, b) => {
+                      // Sort by newest first, unread first
+                      if (a.is_read !== b.is_read) {
+                        return a.is_read ? 1 : -1
+                      }
+                      return new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
+                    })
+                    .slice(0, 10)
+                    .map((message) => (
                     <div
                       key={message.id}
                       className={`message-item ${!message.is_read ? 'unread' : ''} ${message.is_flagged ? 'flagged' : ''} ${selectedMessage?.id === message.id ? 'selected' : ''}`}
@@ -10651,6 +10670,25 @@ export default function Dashboard() {
                       </div>
                     </div>
                   ))}
+                  {messages.filter(m => !m.is_archived).length > 10 && (
+                    <div style={{ 
+                      padding: '20px', 
+                      textAlign: 'center', 
+                      borderTop: '1px solid var(--border)',
+                      marginTop: '10px'
+                    }}>
+                      <p style={{ marginBottom: '12px', color: 'var(--text-secondary)', fontSize: '14px' }}>
+                        Showing 10 newest messages
+                      </p>
+                      <button
+                        onClick={() => setActiveTab('messages')}
+                        className="btn"
+                        style={{ fontSize: '14px' }}
+                      >
+                        View All Messages ({messages.filter(m => !m.is_archived).length})
+                      </button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
