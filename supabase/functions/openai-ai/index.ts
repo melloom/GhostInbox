@@ -1,6 +1,8 @@
+// @ts-nocheck
 // Supabase Edge Function for AI API calls
 // Uses Groq first (free), falls back to OpenAI if Groq fails
 // This keeps the API keys secure on the server side
+// Note: @ts-nocheck is used because this file runs in Deno runtime, not Node.js
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
@@ -35,7 +37,7 @@ async function callAIWithFallback(
           Authorization: `Bearer ${GROQ_API_KEY}`,
         },
         body: JSON.stringify({
-          model: model === 'gpt-4o-mini' ? 'llama-3.1-70b-versatile' : 'llama-3.1-70b-versatile', // Groq model
+          model: 'llama-3.1-70b-versatile', // Groq model (always use this for Groq)
           messages: [{ role: 'user', content: prompt }],
           temperature: temperature,
           ...options,
@@ -169,6 +171,13 @@ interface RequestBody {
   tone?: 'empathetic' | 'professional' | 'casual' | 'auto'
   timeRange?: 'week' | 'month' | 'all'
   ventLinkId?: string
+  // Priority scoring fields
+  ai_category?: string
+  ai_sentiment?: string
+  ai_urgency?: string
+  ai_moderation_severity?: string
+  ai_self_harm_risk?: string
+  created_at?: string
 }
 
 serve(async (req) => {
@@ -657,8 +666,8 @@ Respond with ONLY a JSON object:
       // Handle both string array and object array formats
       const messageList = Array.isArray(messages) && messages.length > 0
         ? (typeof messages[0] === 'string'
-          ? messages.slice(0, 100).map((m: string, idx: number) => `${idx + 1}. ${m}`).join('\n')
-          : messages.slice(0, 100).map((m: any, idx: number) => 
+          ? (messages as string[]).slice(0, 100).map((m: string, idx: number) => `${idx + 1}. ${m}`).join('\n')
+          : (messages as Array<{ body: string; created_at: string; mood?: string }>).slice(0, 100).map((m: any, idx: number) => 
               `${idx + 1}. [${new Date(m.created_at).toLocaleDateString()}] ${m.body}`
             ).join('\n'))
         : ''
