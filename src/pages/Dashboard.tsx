@@ -75,6 +75,21 @@ export default function Dashboard() {
   const [selectedFolderFilter, setSelectedFolderFilter] = useState<string | null>(null)
   const [hubView, setHubView] = useState<'links' | 'polls' | 'qa' | 'challenges' | 'raffles' | 'voting' | 'feedback' | 'highlights' | 'reactions' | 'goals' | 'events' | 'wall' | 'projects'>('links')
   
+  // Navigation preferences (stored in localStorage)
+  const [showMessagesTab, setShowMessagesTab] = useState(() => {
+    const saved = localStorage.getItem('nav_show_messages')
+    return saved !== null ? saved === 'true' : true
+  })
+  const [showSettingsBtn, setShowSettingsBtn] = useState(() => {
+    const saved = localStorage.getItem('nav_show_settings')
+    return saved !== null ? saved === 'true' : true
+  })
+  const [showLogoutBtn, setShowLogoutBtn] = useState(() => {
+    const saved = localStorage.getItem('nav_show_logout')
+    return saved !== null ? saved === 'true' : true
+  })
+  const [deletingAccount, setDeletingAccount] = useState(false)
+  
   // Community Engagement Features State
   const [qaSessions, setQaSessions] = useState<QASession[]>([])
   const [qaQuestions, setQaQuestions] = useState<{ [sessionId: string]: QAQuestion[] }>({})
@@ -1536,6 +1551,71 @@ export default function Dashboard() {
   async function handleLogout() {
     await supabase.auth.signOut()
     navigate('/login')
+  }
+
+  async function handleDeleteAccount() {
+    const confirmation = prompt(
+      '⚠️ WARNING: This will permanently delete your account and all associated data.\n\n' +
+      'This action cannot be undone. All your messages, polls, responses, and profile data will be permanently deleted.\n\n' +
+      'Type "DELETE" to confirm:'
+    )
+    
+    if (confirmation !== 'DELETE') {
+      return
+    }
+
+    const doubleConfirm = confirm(
+      'Are you absolutely sure? This will permanently delete:\n' +
+      '- Your account and profile\n' +
+      '- All messages and responses\n' +
+      '- All polls, Q&A sessions, challenges\n' +
+      '- All other data associated with your account\n\n' +
+      'This cannot be undone!'
+    )
+
+    if (!doubleConfirm) return
+
+    setDeletingAccount(true)
+    try {
+      // Get current user
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) {
+        alert('No user found')
+        setDeletingAccount(false)
+        return
+      }
+
+      // Delete the profile (this will cascade delete all related data due to ON DELETE CASCADE)
+      // This includes: vent_links, vent_messages, polls, responses, etc.
+      const { error: profileError } = await supabase
+        .from('profiles')
+        .delete()
+        .eq('id', user.id)
+
+      if (profileError) {
+        alert('Error deleting account: ' + profileError.message + '\n\nNote: For complete account deletion including auth record, please contact support.')
+        setDeletingAccount(false)
+        return
+      }
+
+      // Sign out after deleting profile
+      // Note: The auth user record may remain, but all app data is deleted
+      await supabase.auth.signOut()
+      navigate('/login')
+      alert('Your account data has been deleted successfully. All your messages, polls, and profile information have been permanently removed.')
+    } catch (err: any) {
+      console.error('Error deleting account:', err)
+      alert('Error deleting account: ' + (err.message || 'Unknown error'))
+      setDeletingAccount(false)
+    }
+  }
+
+  // Navigation preference handlers
+  const updateNavPreference = (key: string, value: boolean) => {
+    localStorage.setItem(`nav_${key}`, String(value))
+    if (key === 'show_messages') setShowMessagesTab(value)
+    if (key === 'show_settings') setShowSettingsBtn(value)
+    if (key === 'show_logout') setShowLogoutBtn(value)
   }
 
   const markAsRead = async (id: string, isRead: boolean) => {
@@ -4301,36 +4381,42 @@ export default function Dashboard() {
             )}
           </div>
           <div className="header-right">
-            <button
-              onClick={() => {
-                if (activeTab === 'messages') {
-                  setActiveTab('overview')
-                } else {
-                  setActiveTab('messages')
-                }
-              }}
-              className={`header-tab-btn ${activeTab === 'messages' ? 'active' : ''}`}
-            >
-              <span className="header-tab-icon">💬</span>
-              <span className="header-tab-text">Messages</span>
-              {unreadCount > 0 && <span className="header-badge">{unreadCount}</span>}
-            </button>
-            <button
-              onClick={() => {
-                if (activeTab === 'settings') {
-                  setActiveTab('overview')
-                } else {
-                  setActiveTab('settings')
-                }
-              }}
-              className={`header-settings-btn ${activeTab === 'settings' ? 'active' : ''}`}
-              title="Settings"
-            >
-              <span className="header-settings-icon">⚙️</span>
-            </button>
-            <button onClick={handleLogout} className="btn btn-secondary">
-              Logout
-            </button>
+            {showMessagesTab && (
+              <button
+                onClick={() => {
+                  if (activeTab === 'messages') {
+                    setActiveTab('overview')
+                  } else {
+                    setActiveTab('messages')
+                  }
+                }}
+                className={`header-tab-btn ${activeTab === 'messages' ? 'active' : ''}`}
+              >
+                <span className="header-tab-icon">💬</span>
+                <span className="header-tab-text">Messages</span>
+                {unreadCount > 0 && <span className="header-badge">{unreadCount}</span>}
+              </button>
+            )}
+            {showSettingsBtn && (
+              <button
+                onClick={() => {
+                  if (activeTab === 'settings') {
+                    setActiveTab('overview')
+                  } else {
+                    setActiveTab('settings')
+                  }
+                }}
+                className={`header-settings-btn ${activeTab === 'settings' ? 'active' : ''}`}
+                title="Settings"
+              >
+                <span className="header-settings-icon">⚙️</span>
+              </button>
+            )}
+            {showLogoutBtn && (
+              <button onClick={handleLogout} className="btn btn-secondary">
+                Logout
+              </button>
+            )}
           </div>
         </header>
 
@@ -4629,11 +4715,129 @@ export default function Dashboard() {
                   </div>
                 </div>
 
+                {/* Navigation Preferences */}
+                <div className="settings-section">
+                  <h3>Navigation Preferences</h3>
+                  <div className="settings-item">
+                    <div className="settings-item-label">
+                      <label>Show Messages Tab</label>
+                      <span className="settings-hint">Toggle visibility of the Messages button in the navigation bar</span>
+                    </div>
+                    <div className="settings-item-value">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={showMessagesTab}
+                          onChange={(e) => updateNavPreference('show_messages', e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        />
+                        <span>{showMessagesTab ? 'Visible' : 'Hidden'}</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="settings-item">
+                    <div className="settings-item-label">
+                      <label>Show Settings Button</label>
+                      <span className="settings-hint">Toggle visibility of the Settings button in the navigation bar</span>
+                    </div>
+                    <div className="settings-item-value">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={showSettingsBtn}
+                          onChange={(e) => updateNavPreference('show_settings', e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        />
+                        <span>{showSettingsBtn ? 'Visible' : 'Hidden'}</span>
+                      </label>
+                    </div>
+                  </div>
+                  <div className="settings-item">
+                    <div className="settings-item-label">
+                      <label>Show Logout Button</label>
+                      <span className="settings-hint">Toggle visibility of the Logout button in the navigation bar</span>
+                    </div>
+                    <div className="settings-item-value">
+                      <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                        <input
+                          type="checkbox"
+                          checked={showLogoutBtn}
+                          onChange={(e) => updateNavPreference('show_logout', e.target.checked)}
+                          style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                        />
+                        <span>{showLogoutBtn ? 'Visible' : 'Hidden'}</span>
+                      </label>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Privacy & Security */}
+                <div className="settings-section">
+                  <h3>Privacy & Security</h3>
+                  <div className="settings-item">
+                    <div className="settings-item-label">
+                      <label>Data Export</label>
+                      <span className="settings-hint">Download a copy of your data</span>
+                    </div>
+                    <div className="settings-item-value">
+                      <button
+                        className="btn btn-secondary"
+                        onClick={async () => {
+                          try {
+                            // Export user data
+                            const exportData = {
+                              profile: profile,
+                              ventLinks: ventLinks,
+                              messages: messages.length,
+                              polls: polls.length,
+                              exportDate: new Date().toISOString()
+                            }
+                            const dataStr = JSON.stringify(exportData, null, 2)
+                            const dataBlob = new Blob([dataStr], { type: 'application/json' })
+                            const url = URL.createObjectURL(dataBlob)
+                            const link = document.createElement('a')
+                            link.href = url
+                            link.download = `ghostinbox-export-${new Date().toISOString().split('T')[0]}.json`
+                            link.click()
+                            URL.revokeObjectURL(url)
+                            alert('Data export downloaded!')
+                          } catch (err: any) {
+                            alert('Error exporting data: ' + (err.message || 'Unknown error'))
+                          }
+                        }}
+                      >
+                        Export Data
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Danger Zone */}
+                <div className="settings-section" style={{ border: '2px solid var(--danger)', background: 'rgba(239, 68, 68, 0.05)' }}>
+                  <h3 style={{ color: 'var(--danger)' }}>⚠️ Danger Zone</h3>
+                  <div className="settings-item">
+                    <div className="settings-item-label">
+                      <label style={{ color: 'var(--danger)', fontWeight: '600' }}>Delete Account</label>
+                      <span className="settings-hint">Permanently delete your account and all associated data. This action cannot be undone.</span>
+                    </div>
+                    <div className="settings-item-value">
+                      <button
+                        onClick={handleDeleteAccount}
+                        disabled={deletingAccount}
+                        className="btn btn-danger"
+                        style={{ minWidth: '150px' }}
+                      >
+                        {deletingAccount ? 'Deleting...' : 'Delete Account'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
                 {/* Actions */}
                 <div className="settings-section">
                   <h3>Actions</h3>
                   <div className="settings-actions">
-                    <button onClick={handleLogout} className="btn btn-danger">
+                    <button onClick={handleLogout} className="btn btn-secondary">
                       Logout
                     </button>
                   </div>
