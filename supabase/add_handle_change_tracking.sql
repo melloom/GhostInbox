@@ -17,3 +17,4 @@ ALTER TABLE public.profiles
 -- Add comment for documentation
 COMMENT ON COLUMN public.profiles.handle_changed IS 'Tracks if the user has changed their handle. Users can only change their handle once.';
 
+

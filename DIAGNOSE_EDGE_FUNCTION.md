@@ -121,3 +121,4 @@ Check the browser console for detailed error logs. The improved error handling w
 - Whether Supabase URL is configured
 - Whether you're logged in
 - The exact error message from the Edge Function
+

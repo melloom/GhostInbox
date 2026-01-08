@@ -275,6 +275,26 @@ export default function LoginPage() {
   return (
     <div className="auth-page">
       <div className="auth-container">
+        <button
+          onClick={() => navigate('/')}
+          className="btn btn-secondary"
+          type="button"
+          style={{
+            position: 'absolute',
+            top: '20px',
+            left: '20px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+            padding: '8px 16px',
+            fontSize: '14px',
+            background: 'var(--bg-secondary)',
+            border: '1px solid var(--border)',
+            cursor: 'pointer'
+          }}
+        >
+          ← Back to Home
+        </button>
         <h1>GhostInbox</h1>
         <p className="auth-subtitle">
           {showForgotPassword 

@@ -610,8 +610,8 @@ export default function VentPage() {
   }, [ventLink, userMessageIds])
 
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault()
+  async function handleSubmit(e?: React.FormEvent) {
+    if (e) e.preventDefault()
     if (!ventLink) return
     
     // Validate message
@@ -628,40 +628,15 @@ export default function VentPage() {
       return
     }
 
+    // Don't allow multiple submissions
+    if (submitting) return
+
     setSubmitting(true)
     setError(null)
     setStatus(null)
 
     try {
-      // REAL-TIME PRE-SUBMISSION MODERATION CHECK
-      const { data: moderationCheck, error: moderationError } = await supabase.functions.invoke('ai-moderation-enhanced', {
-        body: {
-          message_body: sanitized,
-          vent_link_id: ventLink.id,
-          message_history: userMessages.slice(-3).map(m => ({ body: m.body, created_at: m.created_at })),
-          is_pre_submission: true,
-        },
-      })
-
-      if (!moderationError && moderationCheck?.moderation) {
-        const mod = moderationCheck.moderation
-        if (moderationCheck.should_block) {
-          // Block message submission
-          setStatus(moderationCheck.block_reason || 'This message cannot be sent due to content policy violations.')
-          setSubmitting(false)
-          return
-        }
-        
-        // Warn user if high risk but not blocking
-        if (mod.severity === 'high' || mod.severity === 'critical') {
-          setStatus('⚠️ Warning: This message may contain concerning content. Please review before sending.')
-        } else if (mod.self_harm?.risk_level === 'high' || mod.self_harm?.risk_level === 'critical') {
-          // Show crisis resources
-          setStatus('💙 If you\'re in crisis, please reach out for help. You\'re not alone.')
-        }
-      }
-
-      // Check rate limit
+      // Check rate limit FIRST (fast check)
       const { data: rateLimitData, error: rateLimitError } = await supabase.functions.invoke('rate-limit-messages', {
         body: {
           vent_link_id: ventLink.id,
@@ -675,8 +650,7 @@ export default function VentPage() {
         return
       }
 
-      // Get IP hash for rate limiting (done server-side, but we can pass it)
-      // The Edge Function will hash the IP automatically
+      // Submit message immediately for better UX
       const { data: insertedData, error } = await supabase
         .from('vent_messages')
         .insert({
@@ -692,9 +666,9 @@ export default function VentPage() {
         // Sanitize error message before showing to user
         const sanitizedError = sanitizeErrorMessage(error)
         setStatus(sanitizedError)
+        setSubmitting(false)
         return
       }
-
 
       // Store message ID and content in localStorage so user can receive responses
       if (insertedData?.id) {
@@ -712,18 +686,37 @@ export default function VentPage() {
           localStorage.setItem(storageKey, JSON.stringify(messages))
           setUserMessageIds(messages.map((m: any) => m.id))
           setUserMessages(messages)
-          // Fetch responses for this message
+          // Fetch responses for this message (non-blocking)
           fetchMessageResponses(insertedData.id)
         }
       }
+      
+      // Clear form immediately
       setMessage('')
       setMood('')
       setStatus('Message sent anonymously. Thank you for sharing.')
+      setSubmitting(false)
+
+      // Run moderation check AFTER submission (non-blocking, background process)
+      // This allows faster submission while still checking content
+      supabase.functions.invoke('ai-moderation-enhanced', {
+        body: {
+          message_body: sanitized,
+          vent_link_id: ventLink.id,
+          message_history: userMessages.slice(-3).map(m => ({ body: m.body, created_at: m.created_at })),
+          is_pre_submission: false, // Post-submission check
+          message_id: insertedData?.id,
+        },
+      }).catch(err => {
+        // Silently handle moderation check errors (don't affect user experience)
+        if (import.meta.env.DEV) {
+          console.log('Background moderation check error:', err)
+        }
+      })
     } catch (err: any) {
       // Sanitize error message before showing to user
       const sanitizedError = sanitizeErrorMessage(err)
       setStatus(sanitizedError)
-    } finally {
       setSubmitting(false)
     }
   }
@@ -1338,7 +1331,16 @@ export default function VentPage() {
                     className="chat-input"
                     value={message}
                     onChange={(e) => setMessage(e.target.value)}
-                    placeholder="Type a message..."
+                    onKeyDown={(e) => {
+                      // Submit on Enter (without Shift), new line on Shift+Enter
+                      if (e.key === 'Enter' && !e.shiftKey) {
+                        e.preventDefault()
+                        if (message.trim() && !submitting) {
+                          handleSubmit(e)
+                        }
+                      }
+                    }}
+                    placeholder="Type a message... (Press Enter to send, Shift+Enter for new line)"
                     required
                     disabled={submitting}
                     maxLength={5000}

@@ -10,6 +10,8 @@ export default function Dashboard() {
   const [selectedVentLinkId, setSelectedVentLinkId] = useState<string | null>(null)
   const [messages, setMessages] = useState<VentMessage[]>([])
   const [selectedMessage, setSelectedMessage] = useState<VentMessage | null>(null)
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null)
+  const [threadedMessages, setThreadedMessages] = useState<{ [threadId: string]: VentMessage[] }>({})
   const [loading, setLoading] = useState(true)
   const [aiReplies, setAiReplies] = useState<string | null>(null)
   const [loadingAi, setLoadingAi] = useState(false)
@@ -1293,6 +1295,26 @@ export default function Dashboard() {
 
         if (msgsError) throw msgsError
         setMessages(msgs || [])
+        
+        // Group messages by ip_hash (thread/conversation)
+        if (msgs && msgs.length > 0) {
+          const threads: { [threadId: string]: VentMessage[] } = {}
+          msgs.forEach(msg => {
+            // Use ip_hash as thread ID, or message ID if no ip_hash (for single messages)
+            const threadId = msg.ip_hash || msg.id
+            if (!threads[threadId]) {
+              threads[threadId] = []
+            }
+            threads[threadId].push(msg)
+          })
+          // Sort messages within each thread by created_at
+          Object.keys(threads).forEach(threadId => {
+            threads[threadId].sort((a, b) => 
+              new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
+            )
+          })
+          setThreadedMessages(threads)
+        }
 
         // Fetch reactions for all messages
         if (msgs && msgs.length > 0) {
@@ -3990,6 +4012,30 @@ export default function Dashboard() {
     clearSelection()
   }
 
+  async function deleteMessage(messageId: string) {
+    if (!confirm('Are you sure you want to delete this message? This cannot be undone.')) return
+    
+    try {
+      const { error } = await supabase
+        .from('vent_messages')
+        .delete()
+        .eq('id', messageId)
+
+      if (error) throw error
+      
+      // If deleting the selected message, clear selection
+      if (selectedMessage?.id === messageId) {
+        setSelectedMessage(null)
+        setSelectedThreadId(null)
+      }
+      
+      // Refresh data
+      await fetchData()
+    } catch (err: any) {
+      alert('Error deleting message: ' + (err.message || 'Unknown error'))
+    }
+  }
+
   async function bulkDeleteMessages() {
     if (!confirm(`Delete ${selectedMessages.size} message(s)? This cannot be undone.`)) return
     
@@ -4432,6 +4478,10 @@ export default function Dashboard() {
     return msgDate >= weekAgo
   }).length
   const recentMessages = messages.filter(m => !m.is_archived).slice(0, 5)
+
+  // Prepare thread/conversation data for selected message
+  const currentThreadId = selectedMessage ? (selectedMessage.ip_hash || selectedMessage.id) : null
+  const threadMessages = currentThreadId && threadedMessages[currentThreadId] ? threadedMessages[currentThreadId] : (selectedMessage ? [selectedMessage] : [])
 
   return (
     <div className="dashboard">
@@ -10608,11 +10658,22 @@ export default function Dashboard() {
                       className={`message-item ${!message.is_read ? 'unread' : ''} ${message.is_flagged ? 'flagged' : ''} ${selectedMessage?.id === message.id ? 'selected' : ''}`}
                       onClick={() => {
                         setSelectedMessage(message)
+                        setSelectedThreadId(message.ip_hash || message.id)
                         setAiReplies(null) // Clear AI replies when selecting new message
-                        // Mark as read if unread
-                        if (!message.is_read) {
-                          markAsRead(message.id, true)
-                        }
+                        // Mark all messages in thread as read if any is unread
+                        const threadId = message.ip_hash || message.id
+                        const threadMsgs = threadedMessages[threadId] || [message]
+                        threadMsgs.forEach(msg => {
+                          if (!msg.is_read) {
+                            markAsRead(msg.id, true)
+                          }
+                        })
+                        // Fetch responses for all messages in thread
+                        threadMsgs.forEach(msg => {
+                          if (messageResponsesData[msg.id] === undefined) {
+                            fetchMessageResponses(msg.id)
+                          }
+                        })
                       }}
                     >
                       <div className="message-preview">
@@ -10704,42 +10765,210 @@ export default function Dashboard() {
               )}
             </div>
 
-            {/* Message Detail Panel - Right Side */}
-            {selectedMessage && (
-              <div className="card message-detail">
-                <div className="message-detail-header-modern">
-                  <div className="message-header-content">
-                    <h3 className="message-title">Message</h3>
-                    <div className="message-header-meta">
-                      <span className="message-time-icon">🕐</span>
-                      <span className="message-time">{formatTimeAgo(selectedMessage.created_at)}</span>
+            {/* Message Detail Panel - Right Side - Thread/Conversation View */}
+            {selectedMessage && threadMessages.length > 0 && (
+                <div className="card message-detail" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+                  <div className="message-detail-header-modern">
+                    <div className="message-header-content">
+                      <h3 className="message-title">
+                        Conversation ({threadMessages.length} {threadMessages.length === 1 ? 'message' : 'messages'})
+                      </h3>
+                      <div className="message-header-meta">
+                        <span className="message-time-icon">🕐</span>
+                        <span className="message-time">{formatTimeAgo(threadMessages[threadMessages.length - 1].created_at)}</span>
+                      </div>
                     </div>
+                    <button
+                      onClick={() => {
+                        setSelectedMessage(null)
+                        setAiReplies(null)
+                        setEditingNote(null)
+                        setSelectedThreadId(null)
+                      }}
+                      className="btn-close-modern"
+                      title="Close"
+                    >
+                      ×
+                    </button>
                   </div>
-                  <button
-                    onClick={() => {
-                      setSelectedMessage(null)
-                      setAiReplies(null)
-                      setEditingNote(null)
-                    }}
-                    className="btn-close-modern"
-                    title="Close"
-                  >
-                    ×
-                  </button>
-                </div>
-                
-                <div className="message-body-modern">
-                  <p>{selectedMessage.body}</p>
-                  {selectedMessage.mood && (
-                    <div className="message-mood-badge">
-                      <span className="mood-icon">😊</span>
-                      <span>{selectedMessage.mood}</span>
-                    </div>
-                  )}
-                </div>
+                  
+                  {/* Conversation Thread */}
+                  <div style={{ 
+                    flex: 1, 
+                    overflowY: 'auto', 
+                    padding: '20px',
+                    display: 'flex',
+                    flexDirection: 'column',
+                    gap: '12px',
+                    background: 'var(--bg-primary)'
+                  }}>
+                    {threadMessages.map((msg) => {
+                      const hasResponse = messageResponsesData[msg.id] && messageResponsesData[msg.id].length > 0
+                      
+                      return (
+                        <div key={msg.id}>
+                          {/* Visitor Message (Left side) */}
+                          <div style={{
+                            display: 'flex',
+                            flexDirection: 'column',
+                            alignItems: 'flex-start',
+                            marginBottom: hasResponse ? '8px' : '12px',
+                            position: 'relative'
+                          }}>
+                            <div style={{
+                              maxWidth: '75%',
+                              padding: '12px 16px',
+                              background: 'var(--bg-secondary)',
+                              borderRadius: '16px 16px 16px 4px',
+                              border: '1px solid var(--border)',
+                              wordBreak: 'break-word',
+                              position: 'relative'
+                            }}>
+                              <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{msg.body}</p>
+                              {msg.mood && (
+                                <div style={{ marginTop: '8px', fontSize: '12px', opacity: 0.7 }}>
+                                  {msg.mood}
+                                </div>
+                              )}
+                              <div style={{ 
+                                fontSize: '11px', 
+                                color: 'var(--text-secondary)', 
+                                marginTop: '8px',
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: '8px',
+                                justifyContent: 'space-between'
+                              }}>
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                                  <span>{formatTimeAgo(msg.created_at)}</span>
+                                  {!msg.is_read && <span style={{ 
+                                    width: '8px', 
+                                    height: '8px', 
+                                    borderRadius: '50%', 
+                                    background: 'var(--accent)' 
+                                  }}></span>}
+                                </div>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation()
+                                    deleteMessage(msg.id)
+                                  }}
+                                  style={{
+                                    padding: '4px 8px',
+                                    fontSize: '11px',
+                                    background: 'var(--danger)',
+                                    color: 'white',
+                                    border: 'none',
+                                    borderRadius: '4px',
+                                    cursor: 'pointer',
+                                    opacity: 0.7,
+                                    transition: 'all 0.2s',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    gap: '4px'
+                                  }}
+                                  onMouseEnter={(e) => {
+                                    e.currentTarget.style.opacity = '1'
+                                    e.currentTarget.style.background = '#e74c3c'
+                                  }}
+                                  onMouseLeave={(e) => {
+                                    e.currentTarget.style.opacity = '0.7'
+                                    e.currentTarget.style.background = 'var(--danger)'
+                                  }}
+                                  title="Delete message"
+                                >
+                                  🗑️ Delete
+                                </button>
+                              </div>
+                            </div>
+                          </div>
+                          
+                          {/* Host Response (Right side) */}
+                          {hasResponse && messageResponsesData[msg.id].map((response) => (
+                            <div key={response.id} style={{
+                              display: 'flex',
+                              flexDirection: 'column',
+                              alignItems: 'flex-end',
+                              marginBottom: '12px'
+                            }}>
+                              <div style={{
+                                maxWidth: '75%',
+                                padding: '12px 16px',
+                                background: 'var(--accent)',
+                                color: 'white',
+                                borderRadius: '16px 16px 4px 16px',
+                                wordBreak: 'break-word',
+                                position: 'relative'
+                              }}>
+                                <p style={{ margin: 0, whiteSpace: 'pre-wrap' }}>{response.response_text}</p>
+                                <div style={{ 
+                                  fontSize: '11px', 
+                                  opacity: 0.8, 
+                                  marginTop: '8px',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'space-between',
+                                  gap: '8px'
+                                }}>
+                                  <span>You · {formatTimeAgo(response.created_at)}</span>
+                                  {profile && response.owner_id === profile.id && (
+                                    <button
+                                      onClick={(e) => {
+                                        e.stopPropagation()
+                                        deleteResponse(response.id, msg.id)
+                                      }}
+                                      style={{
+                                        padding: '4px 8px',
+                                        fontSize: '11px',
+                                        background: 'rgba(255, 255, 255, 0.2)',
+                                        color: 'white',
+                                        border: 'none',
+                                        borderRadius: '4px',
+                                        cursor: 'pointer',
+                                        opacity: 0.8,
+                                        transition: 'opacity 0.2s'
+                                      }}
+                                      onMouseEnter={(e) => {
+                                        e.currentTarget.style.opacity = '1'
+                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.3)'
+                                      }}
+                                      onMouseLeave={(e) => {
+                                        e.currentTarget.style.opacity = '0.8'
+                                        e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)'
+                                      }}
+                                      title="Delete response"
+                                    >
+                                      🗑️
+                                    </button>
+                                  )}
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )
+                    })}
+                  </div>
 
-                {/* Enhanced AI Moderation Alert */}
-                {selectedMessage.ai_moderation_flagged && (
+                  {/* Response Input at bottom */}
+                  <div style={{ 
+                    padding: '16px 20px', 
+                    borderTop: '1px solid var(--border)',
+                    background: 'var(--bg-card)'
+                  }}>
+                    <button
+                      className="action-btn-modern primary"
+                      onClick={() => setShowResponseModal(true)}
+                      style={{ width: '100%' }}
+                      title="Send private response"
+                    >
+                      <span className="action-icon">💬</span>
+                      <span className="action-label">Send Response</span>
+                    </button>
+                  </div>
+
+                  {/* Enhanced AI Moderation Alert - Show for latest message */}
+                  {selectedMessage.ai_moderation_flagged && (
                   <div className="ai-moderation-alert" style={{
                     margin: '16px 0',
                     padding: '16px',
@@ -11153,6 +11382,7 @@ export default function Dashboard() {
                       )}
                     </div>
                   </div>
+                </div>
 
                 {/* Actions */}
                 <div className="message-actions-modern">
@@ -11248,10 +11478,12 @@ export default function Dashboard() {
                     </div>
                   </div>
                 )}
-              </div>
+                </div>
+              )}
             </div>
-            )}
-            </div>
+          ) : activeTab === 'messages' ? (
+            /* Messages Tab Content */
+            null
           ) : null}
 
           {/* Message Detail Modal for All Messages View */}

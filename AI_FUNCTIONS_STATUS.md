@@ -75,3 +75,4 @@ If you see "Failed to send a request to the Edge Function":
 3. Verify `OPENAI_API_KEY` is set in Edge Function secrets
 4. Check browser console for detailed error messages
 5. Ensure you're logged in (authentication required)
+

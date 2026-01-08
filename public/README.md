@@ -29,3 +29,4 @@ In your HTML files, reference these assets from the root:
 
 Files in this folder are copied to the `dist` folder during build and served from the root path.
 
+
