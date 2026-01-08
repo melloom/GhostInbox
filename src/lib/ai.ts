@@ -63,8 +63,20 @@ export async function generateReplyTemplates(messageBody: string): Promise<strin
         errorMessage: error.message,
         errorName: error.name,
         errorStack: error.stack,
-        fullError: JSON.stringify(error, null, 2)
+        fullError: JSON.stringify(error, null, 2),
+        responseData: data
       })
+      
+      // Check response data for quota errors (Edge Function returns error in data)
+      // Be specific to avoid false positives
+      if (data?.error && (
+          data.error.includes('insufficient_quota') ||
+          data.error.includes('quota exceeded') ||
+          data.error.includes('exceeded your quota') ||
+          (data.error.includes('billing') && data.error.includes('quota'))
+        )) {
+        throw new Error('OpenAI API quota exceeded. Please check your OpenAI account billing and usage limits at https://platform.openai.com/usage')
+      }
       
       // Check for specific error types
       if (error.message?.includes('Function not found') || 
@@ -108,8 +120,16 @@ export async function generateReplyTemplates(messageBody: string): Promise<strin
         throw new Error('AI service configuration error: OPENAI_API_KEY is not set in Edge Function secrets. Please go to Supabase Dashboard → Project Settings → Edge Functions → Secrets and add OPENAI_API_KEY.')
       }
       
+      // Check for quota errors - be specific to avoid false positives
+      if (error.message?.includes('insufficient_quota') ||
+          error.message?.includes('quota exceeded') ||
+          error.message?.includes('exceeded your quota') ||
+          (error.message?.includes('billing') && error.message?.includes('quota'))) {
+        throw new Error('OpenAI API quota exceeded. Please check your OpenAI account billing and usage limits at https://platform.openai.com/usage')
+      }
+      
       // Generic error with more context
-      const errorMsg = error.message || 'Unknown error occurred'
+      const errorMsg = error.message || data?.error || 'Unknown error occurred'
       throw new Error(`Failed to generate replies: ${errorMsg}`)
     }
 

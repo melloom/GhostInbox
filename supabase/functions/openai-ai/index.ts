@@ -1,12 +1,164 @@
-// Supabase Edge Function for OpenAI API calls
-// This keeps the API key secure on the server side
+// @ts-nocheck
+// Supabase Edge Function for AI API calls
+// Uses Groq first (free), falls back to OpenAI if Groq fails
+// This keeps the API keys secure on the server side
+// Note: @ts-nocheck is used because this file runs in Deno runtime, not Node.js
 
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
 
+// Groq (Primary - Free)
+const GROQ_API_KEY = Deno.env.get('GROQ_API_KEY')
+const GROQ_API_URL = 'https://api.groq.com/openai/v1/chat/completions'
+
+// OpenAI (Fallback)
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')
 const OPENAI_API_URL = 'https://api.openai.com/v1/chat/completions'
 const OPENAI_MODERATION_URL = 'https://api.openai.com/v1/moderations'
+
+/**
+ * Call AI API with Groq first, fallback to OpenAI
+ * Returns the response data or throws an error
+ */
+async function callAIWithFallback(
+  prompt: string,
+  model: string = 'gpt-4o-mini',
+  temperature: number = 0.7,
+  options?: { response_format?: { type: string } }
+): Promise<any> {
+  // Try Groq first (free)
+  if (GROQ_API_KEY) {
+    try {
+      console.log('Attempting Groq API call...')
+      const groqResponse = await fetch(GROQ_API_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${GROQ_API_KEY}`,
+        },
+        body: JSON.stringify({
+          model: 'llama-3.1-70b-versatile', // Groq model (always use this for Groq)
+          messages: [{ role: 'user', content: prompt }],
+          temperature: temperature,
+          ...options,
+        }),
+      })
+
+      if (groqResponse.ok) {
+        const groqData = await groqResponse.json()
+        console.log('Groq API call successful')
+        return groqData
+      } else {
+        const errorText = await groqResponse.text()
+        console.log('Groq API failed, trying OpenAI fallback:', errorText.substring(0, 100))
+        // Fall through to OpenAI
+      }
+    } catch (error) {
+      console.log('Groq API error, trying OpenAI fallback:', error)
+      // Fall through to OpenAI
+    }
+  }
+
+  // Fallback to OpenAI
+  if (OPENAI_API_KEY) {
+    console.log('Using OpenAI API (fallback)')
+    const openaiResponse = await fetch(OPENAI_API_URL, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${OPENAI_API_KEY}`,
+      },
+      body: JSON.stringify({
+        model: model,
+        messages: [{ role: 'user', content: prompt }],
+        temperature: temperature,
+        ...options,
+      }),
+    })
+
+    if (!openaiResponse.ok) {
+      throw await handleOpenAIError(openaiResponse, 'Failed to generate AI response')
+    }
+
+    const openaiData = await openaiResponse.json()
+    return openaiData
+  }
+
+  throw new Error('No AI provider available. Please configure GROQ_API_KEY or OPENAI_API_KEY.')
+}
+
+/**
+ * Handle OpenAI API errors and return user-friendly messages
+ */
+async function handleOpenAIError(response: Response, defaultMessage: string): Promise<Response> {
+  const errorData = await response.text()
+  let errorMessage = defaultMessage
+  let statusCode = response.status
+
+  try {
+    const errorJson = JSON.parse(errorData)
+    const errorType = errorJson.error?.type || errorJson.error?.code || ''
+    const errorMsg = errorJson.error?.message || ''
+
+    // Check for quota/billing errors - be specific to avoid false positives
+    if (
+      errorType === 'insufficient_quota' ||
+      errorJson.error?.code === 'insufficient_quota' ||
+      errorMsg.includes('insufficient_quota') ||
+      errorMsg.includes('You exceeded your current quota') ||
+      errorMsg.includes('You have exceeded your quota') ||
+      errorMsg.includes('quota has been exceeded') ||
+      (errorMsg.includes('billing') && (errorMsg.includes('quota') || errorMsg.includes('limit')))
+    ) {
+      errorMessage = 'OpenAI API quota exceeded. Please check your OpenAI account billing and usage limits at https://platform.openai.com/usage'
+      statusCode = 429
+    }
+    // Check for invalid API key
+    else if (
+      errorType === 'invalid_api_key' ||
+      errorMsg.includes('Invalid API key') ||
+      errorMsg.includes('Incorrect API key')
+    ) {
+      errorMessage = 'Invalid OpenAI API key. Please check your Edge Function secrets.'
+      statusCode = 401
+    }
+    // Check for rate limiting (different from quota - this is requests per minute)
+    else if (
+      errorType === 'rate_limit_exceeded' ||
+      errorJson.error?.code === 'rate_limit_exceeded' ||
+      (errorMsg.includes('rate limit') && !errorMsg.includes('quota')) ||
+      (statusCode === 429 && errorType !== 'insufficient_quota' && !errorMsg.includes('quota'))
+    ) {
+      errorMessage = 'OpenAI API rate limit exceeded. Please try again in a few moments.'
+      statusCode = 429
+    }
+    // Use the error message from OpenAI if available
+    else if (errorMsg) {
+      errorMessage = errorMsg
+    }
+  } catch (e) {
+    // If parsing fails, use the raw error data
+    console.error('Failed to parse OpenAI error:', errorData)
+  }
+
+  console.error('OpenAI API error:', {
+    status: statusCode,
+    message: errorMessage,
+    rawError: errorData.substring(0, 200), // Log first 200 chars
+  })
+
+  return new Response(
+    JSON.stringify({ 
+      error: errorMessage,
+      type: 'openai_error',
+      status: statusCode 
+    }),
+    { 
+      status: statusCode, 
+      headers: { 'Content-Type': 'application/json' } 
+    }
+  )
+}
 
 interface RequestBody {
   type: 'reply-templates' | 'theme-summary' | 'moderation' | 'categorize' | 'priority-score' | 'enhanced-reply' | 'qa-answer' | 'insights' | 'quality-score'
@@ -19,6 +171,13 @@ interface RequestBody {
   tone?: 'empathetic' | 'professional' | 'casual' | 'auto'
   timeRange?: 'week' | 'month' | 'all'
   ventLinkId?: string
+  // Priority scoring fields
+  ai_category?: string
+  ai_sentiment?: string
+  ai_urgency?: string
+  ai_moderation_severity?: string
+  ai_self_harm_risk?: string
+  created_at?: string
 }
 
 serve(async (req) => {
@@ -67,10 +226,10 @@ serve(async (req) => {
       )
     }
 
-    // Check OpenAI API key
-    if (!OPENAI_API_KEY) {
+    // Check API keys (need at least one)
+    if (!GROQ_API_KEY && !OPENAI_API_KEY) {
       return new Response(
-        JSON.stringify({ error: 'OpenAI API key not configured' }),
+        JSON.stringify({ error: 'No AI API keys configured. Please set GROQ_API_KEY or OPENAI_API_KEY in Edge Function secrets.' }),
         { status: 500, headers: { 'Content-Type': 'application/json' } }
       )
     }
@@ -132,12 +291,7 @@ serve(async (req) => {
       })
 
       if (!moderationResponse.ok) {
-        const errorData = await moderationResponse.text()
-        console.error('OpenAI Moderation API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to moderate message' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
+        return await handleOpenAIError(moderationResponse, 'Failed to moderate message')
       }
 
       const moderationData = await moderationResponse.json()
@@ -157,28 +311,16 @@ Respond with ONLY a JSON object:
   "requires_immediate_attention": boolean
 }`
 
-      const selfHarmResponse = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: selfHarmPrompt }],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      })
-
       let selfHarmAnalysis = { risk_level: 'none', reasoning: '', requires_immediate_attention: false }
-      if (selfHarmResponse.ok) {
-        const selfHarmData = await selfHarmResponse.json()
+      try {
+        const selfHarmData = await callAIWithFallback(selfHarmPrompt, 'gpt-4o-mini', 0.3, { response_format: { type: 'json_object' } })
         try {
           selfHarmAnalysis = JSON.parse(selfHarmData.choices[0]?.message?.content || '{}')
         } catch (e) {
           console.error('Failed to parse self-harm analysis:', e)
         }
+      } catch (e) {
+        console.error('Failed to get self-harm analysis:', e)
       }
 
       result = {
@@ -204,30 +346,7 @@ Respond with ONLY a JSON object:
   "confidence": 0.0-1.0
 }`
 
-      const categorizeResponse = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: categorizePrompt }],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      })
-
-      if (!categorizeResponse.ok) {
-        const errorData = await categorizeResponse.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to categorize message' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
-
-      const categorizeData = await categorizeResponse.json()
+      const categorizeData = await callAIWithFallback(categorizePrompt, 'gpt-4o-mini', 0.3, { response_format: { type: 'json_object' } })
       try {
         result = JSON.parse(categorizeData.choices[0]?.message?.content || '{}')
       } catch (e) {
@@ -276,7 +395,7 @@ Consider:
 - Crisis indicators (self-harm risk = CRITICAL priority 100)
 - Engagement value (relationship building opportunities)
 
-"${message_body}"${contextInfo}
+"${messageBody}"${contextInfo}
 
 Respond with ONLY a JSON object:
 {
@@ -297,30 +416,7 @@ Respond with ONLY a JSON object:
   "recommendations": ["action1", "action2"]
 }`
 
-      const priorityResponse = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: priorityPrompt }],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      })
-
-      if (!priorityResponse.ok) {
-        const errorData = await priorityResponse.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to score message priority' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
-
-      const priorityData = await priorityResponse.json()
+      const priorityData = await callAIWithFallback(priorityPrompt, 'gpt-4o-mini', 0.3, { response_format: { type: 'json_object' } })
       try {
         result = JSON.parse(priorityData.choices[0]?.message?.content || '{}')
       } catch (e) {
@@ -329,74 +425,93 @@ Respond with ONLY a JSON object:
     }
     // Handle reply templates (existing)
     else if (type === 'reply-templates') {
-      const prompt = `You are a supportive friend. The user received this anonymous vent:
+      const prompt = `You are helping a content creator respond to an anonymous message. Read the message carefully and understand what the person is actually saying, asking, or expressing.
 
+MESSAGE TO RESPOND TO:
 "${messageBody}"
 
-Write 3 short reply templates they could send back privately. 
-- Be empathetic but not fake.
-- Max 3 sentences each.
-- Label them 1), 2), 3).`
+INSTRUCTIONS:
+1. FIRST, analyze what this message is really about:
+   - Is it a question? What are they asking?
+   - Is it feedback? What kind?
+   - Is it emotional? What emotion?
+   - Is it a request? What do they want?
+   - Is it just a greeting? Keep it simple.
 
-      const openaiResponse = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-        }),
-      })
+2. THEN, generate 3 thoughtful reply options that:
+   - Directly address what the person actually said
+   - Are genuine and authentic (not generic or robotic)
+   - Match the tone and energy of the original message
+   - Are empathetic if the message is emotional
+   - Are helpful if the message is a question
+   - Are appreciative if the message is positive
+   - Are 2-4 sentences each
+   - Are labeled 1), 2), 3)
 
-      if (!openaiResponse.ok) {
-        const errorData = await openaiResponse.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to generate AI response' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
+3. Make each reply option different:
+   - Option 1: More direct/straightforward approach
+   - Option 2: More empathetic/warm approach  
+   - Option 3: More casual/friendly approach
 
-      const openaiData = await openaiResponse.json()
-      result = openaiData.choices[0]?.message?.content || 'Failed to generate response'
+IMPORTANT: Base your replies on what the message ACTUALLY says, not generic responses. If the message is just "hi", keep it simple. If it's a deep question, give a thoughtful answer.
+
+Generate the 3 reply options now:`
+
+      const aiData = await callAIWithFallback(prompt, 'gpt-4o-mini', 0.7)
+      result = aiData.choices[0]?.message?.content || 'Failed to generate response'
     }
     // Handle theme summary (existing)
     else if (type === 'theme-summary') {
-      const combined = messages!.slice(0, 20).map((m) => `- ${m}`).join('\n')
-      const prompt = `These are anonymous vents someone received:
+      // Format messages with numbering for better context
+      const messageArray = messages!.slice(0, 20)
+      const messageList = messageArray
+        .map((m, idx) => {
+          const messageText = typeof m === 'string' ? m : m.body || m
+          return `${idx + 1}. "${messageText}"`
+        })
+        .join('\n')
+      
+      const messageCount = messageArray.length
+      
+      const prompt = `You are analyzing anonymous messages received by a content creator. Your job is to READ each message carefully and provide REAL insights based on what people ACTUALLY wrote.
 
-${combined}
+MESSAGES TO ANALYZE (${messageCount} total):
+${messageList}
 
-1) Summarize the main themes in 3–5 bullet points.
-2) Then give 2 short self-care reminders for the person reading them.`
+ANALYSIS PROCESS:
+1. Read EVERY message individually - what does each person actually say?
+2. Look for REAL patterns:
+   - Are there common questions? What are people asking?
+   - Are there common topics? What subjects come up?
+   - Are there common emotions? How are people feeling?
+   - Are there common requests? What do people want?
+3. Identify ACTUAL themes (not generic ones):
+   - If people ask "when will you...", the theme is about timing/scheduling
+   - If people say "I love your...", the theme is appreciation/compliments
+   - If people ask "how do you...", the theme is advice/learning
+   - If messages are just "hi" or "hello", note these are simple greetings
+4. Be SPECIFIC - don't say "communication" if the messages are actually asking specific questions
 
-      const openaiResponse = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: prompt }],
-          temperature: 0.7,
-        }),
-      })
+Provide your analysis in this exact format:
 
-      if (!openaiResponse.ok) {
-        const errorData = await openaiResponse.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to generate AI response' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
+### Main Themes
 
-      const openaiData = await openaiResponse.json()
-      result = openaiData.choices[0]?.message?.content || 'Failed to generate response'
+[3-5 bullet points. Each should be SPECIFIC about what you actually found:
+- "People are asking about [specific topic]" (if they are)
+- "Several messages express [specific emotion] about [specific thing]"
+- "Multiple questions about [specific subject]"
+- "Simple greetings and brief messages" (if that's what they are)
+- Be concrete and specific, not vague or generic]
+
+### Self-Care Reminders
+
+1. [Practical reminder based on the actual message patterns you found]
+2. [Second reminder relevant to managing these specific types of messages]
+
+CRITICAL: Only identify themes that are ACTUALLY in the messages. If messages are mostly greetings, say that. If they're questions, say what they're asking about. Be honest and specific.`
+
+      const aiData = await callAIWithFallback(prompt, 'gpt-4o-mini', 0.7)
+      result = aiData.choices[0]?.message?.content || 'Failed to generate response'
     }
     // Handle enhanced reply (context-aware, tone matching)
     else if (type === 'enhanced-reply') {
@@ -426,45 +541,36 @@ ${combined}
         ? 'Be professional, clear, and respectful. Maintain appropriate boundaries.'
         : 'Be friendly, casual, and conversational. Keep it light and approachable.'
 
-      const enhancedPrompt = `You are a supportive friend helping someone respond to an anonymous message. Generate 3 high-quality reply options.
+      const enhancedPrompt = `You are helping a content creator craft the perfect response to an anonymous message. Read the message carefully and understand the full context.
 
-Current message:
+CURRENT MESSAGE TO RESPOND TO:
 "${messageBody}"${contextInfo}
 
-Guidelines:
+ANALYSIS REQUIRED:
+1. What is this message really about? (question, feedback, emotion, request, greeting, etc.)
+2. What tone does the sender use? (serious, casual, emotional, curious, etc.)
+3. What do they need or want? (answer, acknowledgment, support, etc.)
+4. If there's message history, how does this message relate to previous ones?
+
+REPLY REQUIREMENTS:
 - ${toneInstruction}
 - Each reply should be 2-4 sentences
-- Be authentic and genuine (not robotic)
-- Consider the message history for context
+- Be authentic, genuine, and human (not robotic or generic)
+- Directly address what the person actually said
+- Consider the full context including message history
+- Match the energy and tone of the original message
 - Label them 1), 2), 3)
 
-Generate 3 distinct reply options that vary in approach but all maintain the ${tone} tone.`
+REPLY OPTIONS (make each different):
+1) More direct/straightforward - gets to the point
+2) More empathetic/warm - shows understanding and care
+3) More conversational/friendly - builds connection
 
-      const response = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: enhancedPrompt }],
-          temperature: 0.7,
-        }),
-      })
+Generate 3 high-quality, contextually-aware reply options that truly respond to what this person is saying:`
 
-      if (!response.ok) {
-        const errorData = await response.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to generate enhanced reply' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
-
-      const data = await response.json()
+      const aiData = await callAIWithFallback(enhancedPrompt, 'gpt-4o-mini', 0.7)
       result = {
-        replies: data.choices[0]?.message?.content || 'Failed to generate replies',
+        replies: aiData.choices[0]?.message?.content || 'Failed to generate replies',
         tone: tone,
         context_used: messageHistory.length,
       }
@@ -478,43 +584,36 @@ Generate 3 distinct reply options that vary in approach but all maintain the ${t
         )
       }
 
-      const qaPrompt = `You are helping answer a question in a Q&A session. Generate a helpful, accurate answer.
+      const qaPrompt = `You are helping a content creator answer a question in a Q&A session. Read the question carefully and understand what the person is ACTUALLY asking.
 
-Question: "${body.questionText}"
-${body.qaSessionContext ? `\nQ&A Session Context: ${body.qaSessionContext}` : ''}
+QUESTION TO ANSWER:
+"${body.questionText}"
+${body.qaSessionContext ? `\n\nQ&A SESSION CONTEXT:\n${body.qaSessionContext}` : ''}
 
-Generate a comprehensive answer that:
-- Directly addresses the question
-- Is clear and well-structured
-- Is appropriate for the context
-- Can be 2-5 sentences
+INSTRUCTIONS:
+1. FIRST, understand what they're really asking:
+   - What is the core question?
+   - What do they want to know?
+   - What information are they seeking?
+   - Is there a deeper question behind the words?
 
-Provide the answer:`
+2. THEN, generate a helpful answer that:
+   - Directly addresses what they're asking (not a generic response)
+   - Is clear, well-structured, and easy to understand
+   - Is appropriate for the Q&A context
+   - Is 2-5 sentences (comprehensive but concise)
+   - Shows you actually read and understood their question
+   - Provides value and helpful information
 
-      const response = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: qaPrompt }],
-          temperature: 0.5,
-        }),
-      })
+3. Make it personal and genuine:
+   - Answer as if you're the creator responding
+   - Be authentic and human
+   - If you don't have enough context, acknowledge that but still try to help
 
-      if (!response.ok) {
-        const errorData = await response.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to generate Q&A answer' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
+Provide your answer now:`
 
-      const data = await response.json()
-      const answer = data.choices[0]?.message?.content || ''
+      const aiData = await callAIWithFallback(qaPrompt, 'gpt-4o-mini', 0.5)
+      const answer = aiData.choices[0]?.message?.content || ''
 
       // Score answer quality
       const qualityPrompt = `Rate this Q&A answer on a scale of 1-10 for:
@@ -535,28 +634,16 @@ Respond with ONLY a JSON object:
   "feedback": "brief feedback on how to improve"
 }`
 
-      const qualityResponse = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: qualityPrompt }],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      })
-
       let qualityScore = { overall_score: 7, accuracy: 7, clarity: 7, completeness: 7, appropriateness: 7, feedback: '' }
-      if (qualityResponse.ok) {
-        const qualityData = await qualityResponse.json()
+      try {
+        const qualityData = await callAIWithFallback(qualityPrompt, 'gpt-4o-mini', 0.3, { response_format: { type: 'json_object' } })
         try {
           qualityScore = JSON.parse(qualityData.choices[0]?.message?.content || '{}')
         } catch (e) {
           console.error('Failed to parse quality score:', e)
         }
+      } catch (e) {
+        console.error('Failed to get quality score:', e)
       }
 
       result = {
@@ -579,54 +666,56 @@ Respond with ONLY a JSON object:
       // Handle both string array and object array formats
       const messageList = Array.isArray(messages) && messages.length > 0
         ? (typeof messages[0] === 'string'
-          ? messages.slice(0, 100).map((m: string, idx: number) => `${idx + 1}. ${m}`).join('\n')
-          : messages.slice(0, 100).map((m: any, idx: number) => 
+          ? (messages as string[]).slice(0, 100).map((m: string, idx: number) => `${idx + 1}. ${m}`).join('\n')
+          : (messages as Array<{ body: string; created_at: string; mood?: string }>).slice(0, 100).map((m: any, idx: number) => 
               `${idx + 1}. [${new Date(m.created_at).toLocaleDateString()}] ${m.body}`
             ).join('\n'))
         : ''
 
-      const insightsPrompt = `Analyze these anonymous messages and generate comprehensive insights.
+      const insightsPrompt = `You are analyzing anonymous messages to provide real, actionable insights. Read each message carefully and identify what people are ACTUALLY saying.
 
-Time Range: ${timeRangeLabel}
-Total Messages: ${messages.length}
+CONTEXT:
+- Time Range: ${timeRangeLabel}
+- Total Messages: ${messages.length}
 
-Messages:
+MESSAGES:
 ${messageList}
 
-Generate a detailed analysis with:
-1. **Main Themes** (3-5 key topics that appear frequently)
-2. **Sentiment Trends** (how sentiment has changed over time)
-3. **Topic Clustering** (group similar messages together)
-4. **Content Opportunities** (suggestions for content, responses, or engagement)
-5. **Key Insights** (notable patterns or observations)
+ANALYSIS REQUIRED:
+1. **Main Themes** - What topics, questions, or subjects appear most often? Be SPECIFIC:
+   - If people ask questions, what are they asking about?
+   - If people give feedback, what kind?
+   - If people express emotions, what emotions and about what?
+   - List actual themes found, not generic ones
 
-Format as a structured report with clear sections.`
+2. **Sentiment Trends** - How do people feel? Be specific:
+   - What percentage seems positive/negative/neutral?
+   - What are they positive/negative about?
+   - Any patterns in emotional tone?
 
-      const response = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: insightsPrompt }],
-          temperature: 0.7,
-        }),
-      })
+3. **Topic Clustering** - Group similar messages:
+   - Questions about [specific topic]
+   - Compliments about [specific thing]
+   - Requests for [specific action]
+   - Simple greetings
+   - Be concrete about what groups you find
 
-      if (!response.ok) {
-        const errorData = await response.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to generate insights' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
+4. **Content Opportunities** - Based on what people ACTUALLY said:
+   - What content would address their questions?
+   - What topics are they interested in?
+   - What would they find valuable?
+   - Base suggestions on actual message content
 
-      const data = await response.json()
+5. **Key Insights** - Notable patterns:
+   - What stands out?
+   - What should the creator pay attention to?
+   - Any surprises or important observations?
+
+Format as a structured report. Be SPECIFIC and base everything on what the messages actually say, not assumptions.`
+
+      const aiData = await callAIWithFallback(insightsPrompt, 'gpt-4o-mini', 0.7)
       result = {
-        insights: data.choices[0]?.message?.content || '',
+        insights: aiData.choices[0]?.message?.content || '',
         time_range: timeRange,
         message_count: messages.length,
         generated_at: new Date().toISOString(),
@@ -661,34 +750,11 @@ Respond with ONLY a JSON object:
   "feedback": "brief feedback on how to improve"
 }`
 
-      const response = await fetch(OPENAI_API_URL, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${OPENAI_API_KEY}`,
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o-mini',
-          messages: [{ role: 'user', content: qualityPrompt }],
-          temperature: 0.3,
-          response_format: { type: 'json_object' },
-        }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.text()
-        console.error('OpenAI API error:', errorData)
-        return new Response(
-          JSON.stringify({ error: 'Failed to score response quality' }),
-          { status: 500, headers: { 'Content-Type': 'application/json' } }
-        )
-      }
-
-      const data = await response.json()
+      const aiData = await callAIWithFallback(qualityPrompt, 'gpt-4o-mini', 0.3, { response_format: { type: 'json_object' } })
       try {
-        result = JSON.parse(data.choices[0]?.message?.content || '{}')
+        result = JSON.parse(aiData.choices[0]?.message?.content || '{}')
       } catch (e) {
-        result = { overall_score: 7, error: 'Failed to parse quality score' }
+        result = { overall_score: 7, empathy: 7, clarity: 7, appropriateness: 7, tone: 7, feedback: '' }
       }
     }
 

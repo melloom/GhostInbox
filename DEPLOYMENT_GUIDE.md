@@ -31,6 +31,12 @@ In your Supabase Dashboard → Project Settings → Edge Functions → Secrets:
 
 1. **For `openai-ai` function**:
    - `OPENAI_API_KEY`: Your OpenAI API key (get from https://platform.openai.com/api-keys)
+     - ⚠️ **IMPORTANT**: Use `OPENAI_API_KEY` (NO `VITE_` prefix - that's only for frontend!)
+   - `SUPABASE_URL`: Your Supabase project URL (if not auto-provided)
+     - Get from: Settings → API → Project URL
+   - `SUPABASE_ANON_KEY`: Your Supabase anon key (if not auto-provided)
+     - Get from: Settings → API → anon public key
+     - ⚠️ Note: If Supabase auto-provides these, you may not need to set them manually
 
 2. **For `rate-limit-messages` function**:
    - `SERVICE_ROLE_KEY`: Your Supabase service role key (from Project Settings → API)
